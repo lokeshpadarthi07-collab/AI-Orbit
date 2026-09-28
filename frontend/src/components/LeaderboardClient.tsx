@@ -1,1168 +1,1468 @@
-"use client";
+'use client';
 
-import React, { useState, useEffect, useRef } from "react";
-import ArrowUpRight from 'lucide-react/dist/esm/icons/arrow-up-right';
-import ChevronDown from 'lucide-react/dist/esm/icons/chevron-down';
-import Bookmark from 'lucide-react/dist/esm/icons/bookmark';
-import Sparkles from 'lucide-react/dist/esm/icons/sparkles';
-import Building from 'lucide-react/dist/esm/icons/building';
-import Brain from 'lucide-react/dist/esm/icons/brain';
-import Globe from 'lucide-react/dist/esm/icons/globe';
-import Trophy from 'lucide-react/dist/esm/icons/trophy';
-import Search from 'lucide-react/dist/esm/icons/search';
-import SearchX from 'lucide-react/dist/esm/icons/search-x';
-import X from 'lucide-react/dist/esm/icons/x';
-import Info from 'lucide-react/dist/esm/icons/info';
-import { cn, scrollChipIntoView } from "@/lib/utils";
-import { getLeaderboardTools, getLeaderboardModels, getLeaderboardCompanies } from "@/lib/leaderboardData";
-import { Pagination } from "@/components/Pagination";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { 
+  LEADERBOARD_DATA, 
+  LEADERBOARD_CATEGORIES, 
+  SORT_OPTIONS, 
+  PERSPECTIVE_OPTIONS,
+  AI_MODELS_DATA,
+  AI_TOOLS_DATA,
+  AI_AGENTS_DATA,
+  MCP_DATA
+} from '@/data/leaderboardData';
+import { COMPANIES_DATA } from '@/data/companiesData';
+import LeaderboardSkeleton from '@/components/leaderboard/LeaderboardSkeleton';
+import PerspectiveTabs from '@/components/leaderboard/PerspectiveTabs';
+import SuperpowerBadge from '@/components/leaderboard/SuperpowerBadge';
+import AdaptiveTableHeaders from '@/components/leaderboard/AdaptiveTableHeaders';
+import QuickCompareDock from '@/components/leaderboard/QuickCompareDock';
+import MobileLeaderboardCard from '@/components/leaderboard/MobileLeaderboardCard';
+import CompaniesLeaderboardSection from '@/components/leaderboard/CompaniesLeaderboardSection';
+import MethodologyDrawer from '@/components/leaderboard/MethodologyDrawer';
+import { 
+  Trophy, 
+  RotateCcw, 
+  ChevronDown, 
+  ArrowRight, 
+  GitCompare, 
+  Bookmark, 
+  ExternalLink, 
+  TrendingUp, 
+  TrendingDown, 
+  AlertCircle, 
+  RefreshCw,
+  Sparkles,
+  ChevronLeft,
+  Building2,
+  Cpu,
+  Zap,
+  HelpCircle,
+  Check,
+  X,
+  Bot,
+  Server,
+  Wrench
+} from 'lucide-react';
+import { 
+  buildLeaderboardView,
+  createRequestGate,
+  DEFAULT_FILTERS,
+  logLeaderboard,
+  matchesCategory as matchLeaderboardCategory,
+  shouldCommitPerspectiveFetch,
+  computeFilterKey
+} from '@/lib/leaderboardQuery';
 
-type LeaderboardTool = {
-  id: string;
-  name: string;
-  category: string;
-  tags: string;
-  rank: number;
-  growth: number;
-  votes: number;
-  rating: number;
-  saves: number;
-  url: string;
-  description: string;
-  pricing: string;
-  visits: string;
-  addedDate: string;
-  logoUrl?: string;
-};
+export const matchesCategory = matchLeaderboardCategory;
 
-type LeaderboardModel = {
-  id: string;
-  name: string;
-  provider: string;
-  category: string;
-  rank: number;
-  growth: number;
-  contextWindow: string;
-  pricing: string;
-  eloRating: number;
-  benchmarkScore: number;
-  openSource: boolean;
-  votes: number;
-  rating: number;
-  saves: number;
-  description: string;
-  visits: string;
-  url: string;
-  logoUrl?: string;
-};
+/**
+ * Render the leaderboard with filter-aware loading, request gating, and comparison controls.
+ */
+export function LeaderboardClient({
+  bookmarks: initialBookmarks = [],
+  onToggleBookmark: externalToggleBookmark,
+  selectedForCompare: initialCompare = [],
+  onToggleCompare: externalToggleCompare,
+  onClearCompare: externalClearCompare
+}: any = {}) {
+  const router = useRouter();
 
-type LeaderboardCompany = {
-  id: string;
-  name: string;
-  rank: number;
-  growth: number;
-  funding: string;
-  headquarters: string;
-  productsCount: number;
-  modelsCount: number;
-  votes: number;
-  rating: number;
-  saves: number;
-  description: string;
-  visits: string;
-  url: string;
-  logoUrl?: string;
-};
+  const [localBookmarks, setLocalBookmarks] = useState(initialBookmarks || []);
+  const [localCompare, setLocalCompare] = useState(initialCompare || []);
+  const bookmarks = (initialBookmarks && initialBookmarks.length > 0) ? initialBookmarks : localBookmarks;
+  const selectedForCompare = (initialCompare && initialCompare.length > 0) ? initialCompare : localCompare;
+  const onToggleCompare = externalToggleCompare || ((item: any) => {
+    setLocalCompare((prev: any[]) => prev.some((m) => m.id === item.id) ? prev.filter((m) => m.id !== item.id) : [...prev, item].slice(0, 4));
+  });
+  const onClearCompare = externalClearCompare || (() => setLocalCompare([]));
+  const onToggleBookmark = externalToggleBookmark || ((id: string) => {
+    setLocalBookmarks((prev: any[]) => prev.includes(id) ? prev.filter((b) => b !== id) : [...prev, id]);
+  });
 
-// Hindi & English Translation dictionary
-const t: Record<string, Record<string, string>> = {
-  en: {
-    heroBadge: "GLOBAL AI RANKINGS",
-    heroTitle: "AI Ecosystem Leaderboard",
-    heroSubtitle: "Real-time rankings, traffic growth, and performance metrics across top AI tools, models, and companies.",
-    searchPlaceholder: "Search leaderboard tools, models, or companies...",
-    aiTools: "AI Tools",
-    aiModels: "AI Models",
-    aiCompanies: "AI Companies",
-    bookmarks: "Bookmarks",
-    english: "English",
-    hindi: "Hindi",
-    login: "Login",
-    filter: "FILTER:",
-    sortBy: "Sort by:",
-    rank: "Rank",
-    tool: "Tool",
-    model: "Model",
-    company: "Company",
-    tags: "Tags",
-    monthlyVisits: "Monthly Visits",
-    context: "Context",
-    monthlyHits: "Monthly Hits",
-    products: "Products",
-    monthlyTraffic: "Monthly Traffic",
-    growth: "Growth",
-    action: "Action",
-    visit: "Visit",
-    explore: "Explore",
-    view: "View",
-    loading: "Loading Leaderboard...",
-    allCategories: "All Categories",
-    "Audio & Voice": "Audio & Voice",
-    "Chatbot": "Chatbot",
-    "Code Assistant": "Code Assistant",
-    "Copywriting": "Copywriting",
-    "Data Analysis": "Data Analysis",
-    "Image Generation": "Image Generation",
-    "Productivity": "Productivity",
-    "Search & Answer": "Search & Answer",
-    "Translation": "Translation",
-    "UI/UX Design": "UI/UX Design",
-    "Video Editing": "Video Editing",
-    "Code Model": "Code Model",
-    "LLM": "LLM",
-    "Multi-modal": "Multi-modal",
-    "Multimodal": "Multimodal",
-    "Reasoning LLM": "Reasoning LLM",
-    sortRank: "Sort by: Rank",
-    sortVisits: "Sort by: Monthly Visits",
-    sortGrowth: "Sort by: Growth",
-    sortNewest: "Sort by: Newest",
-    noResultsTitle: "No matches found",
-    noResultsSub: "Try adjusting your search query or clearing category filters.",
-    clearFilters: "Clear Filters",
-  },
-  hi: {
-    heroBadge: "ग्लोबल एआई रैंकिंग",
-    heroTitle: "एआई इकोसिस्टम लीडरबोर्ड",
-    heroSubtitle: "शीर्ष एआई टूल्स, मॉडल्स और कंपनियों की रियल-टाइम रैंकिंग, ट्रैफ़िक ग्रोथ और परफ़ॉरमेंस।",
-    searchPlaceholder: "टूल्स, मॉडल्स या कंपनियाँ खोजें...",
-    aiTools: "एआई टूल्स",
-    aiModels: "एआई मॉडल्स",
-    aiCompanies: "एआई कंपनियाँ",
-    bookmarks: "बुकमार्क",
-    english: "English",
-    hindi: "हिंदी",
-    login: "लॉगिन",
-    filter: "फ़िल्टर:",
-    sortBy: "सॉर्ट करें:",
-    rank: "रैंक",
-    tool: "टूल",
-    model: "मॉडल",
-    company: "कंपनी",
-    tags: "टैग",
-    monthlyVisits: "मासिक विज़िट",
-    context: "कॉन्टेक्स्ट",
-    monthlyHits: "मासिक हिट्स",
-    products: "प्रोडक्ट्स",
-    monthlyTraffic: "मासिक ट्रैफ़िक",
-    growth: "ग्रोथ",
-    action: "एक्शन",
-    visit: "विज़िट",
-    explore: "एक्सप्लोर",
-    view: "देखें",
-    loading: "लीडरबोर्ड लोड हो रहा है...",
-    allCategories: "सभी श्रेणियाँ",
-    "Audio & Voice": "ऑडियो और आवाज़",
-    "Chatbot": "चैटबॉट",
-    "Code Assistant": "कोड असिस्टेंट",
-    "Copywriting": "कॉपीराइटिंग",
-    "Data Analysis": "डेटा विश्लेषण",
-    "Image Generation": "इमेज जनरेशन",
-    "Productivity": "उत्पादकता",
-    "Search & Answer": "खोज और उत्तर",
-    "Translation": "अनुवाद",
-    "UI/UX Design": "यूआई/यूएक्स डिज़ाइन",
-    "Video Editing": "वीडियो एडिटिंग",
-    "Code Model": "कोड मॉडल",
-    "LLM": "एलएलएम",
-    "Multi-modal": "मल्टी-मॉडल",
-    "Multimodal": "मल्टीमॉडल",
-    "Reasoning LLM": "रीजनिंग एलएलएम",
-    sortRank: "सॉर्ट करें: रैंक",
-    sortVisits: "सॉर्ट करें: मासिक विज़िट",
-    sortGrowth: "सॉर्ट करें: ग्रोथ",
-    sortNewest: "सॉर्ट करें: नया",
-    noResultsTitle: "कोई परिणाम नहीं मिला",
-    noResultsSub: "कृपया अपनी खोज या फ़िल्टर बदलकर प्रयास करें।",
-    clearFilters: "फ़िल्टर साफ़ करें",
-  }
-};
+  // Navigation Mode: 'models' (Part A) vs 'companies' (Part B)
+  const [activeTab, setActiveTab] = useState('models');
 
-export function LeaderboardClient() {
-  const [lang, setLang] = useState<"en" | "hi">("en");
-  const [activeTab, setActiveTab] = useState<"tools" | "agents" | "mcp" | "models" | "companies" | "bookmarks">("tools");
-  const [activeCategory, setActiveCategory] = useState("All Categories");
-  const [sortBy, setSortBy] = useState("Rank");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(100);
+  // 1. Unified Single Filter Object
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
 
-  const subCatContainerRef = useRef<HTMLDivElement>(null);
-  const subCatRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  // Monotonic generation counter: increments on EVERY filter change (not just perspective).
+  // This ensures that switching entityType or category immediately shows a loading state
+  // rather than briefly displaying stale rows from the previous filter combination.
+  const commitGenRef = useRef(0);
+  const [committedGen, setCommittedGen] = useState(0);
 
-
-
-  const [tools, setTools] = useState<LeaderboardTool[]>([]);
-  const [agents, setAgents] = useState<LeaderboardTool[]>([]);
-  const [mcp, setMcp] = useState<LeaderboardTool[]>([]);
-  const [models, setModels] = useState<LeaderboardModel[]>([]);
-  const [companies, setCompanies] = useState<LeaderboardCompany[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [activeTab, activeCategory, sortBy, searchQuery]);
-
-  // Local bookmarks set
-  const [bookmarkedIds, setBookmarkedIds] = useState<Set<string>>(new Set());
-
-  // Get current active categories based on active tab — all keys unique per tab
-  const getCategoriesForTab = () => {
-    if (activeTab === "tools") {
-      return [
-        "All Categories",
-        "Coding / Developer",
-        "Search & Research",
-        "Creative & Audio",
-        "Productivity & Workflow",
-      ];
-    } else if (activeTab === "agents") {
-      return [
-        "All Categories",
-        "AI Agents",
-        "Autonomous SWE",
-        "Coding Agents",
-      ];
-    } else if (activeTab === "mcp") {
-      return [
-        "All Categories",
-        "MCP",
-        "Developer Tools",
-        "Databases",
-        "Search & Web",
-      ];
-    } else if (activeTab === "models") {
-      return [
-        "All Categories",
-        "Chat / General LLM",
-        "Coding",
-        "Reasoning",
-        "Open Weight",
-        "Multimodal",
-        "Image",
-        "Video",
-        "Audio / Voice",
-        "Embeddings",
-      ];
-    } else {
-      return ["All Categories"];
-    }
-  };
-
-  // Helper to parse Traffic values e.g. "28.5M" -> 28500000, "3.8B" -> 3800000000
-  const parseTraffic = (val: string): number => {
-    if (!val) return 0;
-    const clean = val.replace(/[^0-9.]/g, "");
-    const num = parseFloat(clean);
-    if (val.toUpperCase().includes("B")) return num * 1000000000;
-    if (val.toUpperCase().includes("M")) return num * 1000000;
-    if (val.toUpperCase().includes("K")) return num * 1000;
-    return num;
-  };
-
-  // Toggle bookmark in local state
-  const toggleLocalBookmark = (id: string) => {
-    const next = new Set(bookmarkedIds);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    setBookmarkedIds(next);
-  };
-
-  // Load real local data — no backend / DB required for local development
-  useEffect(() => {
-    setLoading(true);
-    try {
-      const toolsData = getLeaderboardTools("tool");
-      const agentsData = getLeaderboardTools("agent");
-      const mcpData = getLeaderboardTools("mcp");
-      const modelsData = getLeaderboardModels();
-      const companiesData = getLeaderboardCompanies();
-
-      setTools(toolsData);
-      setAgents(agentsData);
-      setMcp(mcpData);
-      setModels(modelsData);
-      setCompanies(companiesData);
-
-      if (toolsData.length > 0) {
-        setBookmarkedIds(new Set([toolsData[0].id, toolsData[2]?.id].filter(Boolean) as string[]));
-      }
-    } catch (err) {
-      console.error("Error loading leaderboard data:", err);
-    } finally {
-      setLoading(false);
-    }
+  // Atomic filter updater
+  const updateFilters = useCallback((updates) => {
+    commitGenRef.current += 1;
+    const gen = commitGenRef.current;
+    setFilters((prev) => ({ ...prev, ...updates }));
+    setCommittedGen(gen);
   }, []);
 
-  // Filter tools by category & search query
-  const getFilteredTools = () => {
-    let list = tools;
-    if (activeTab === "agents") {
-      list = agents;
-    } else if (activeTab === "mcp") {
-      list = mcp;
-    } else if (activeTab === "bookmarks") {
-      list = tools.filter((t) => bookmarkedIds.has(t.id));
-    }
+  /** Restore default filters and invalidate the currently displayed generation. */
+  const handleClearFilters = useCallback(() => {
+    commitGenRef.current += 1;
+    const gen = commitGenRef.current;
+    setFilters({ ...DEFAULT_FILTERS });
+    setCommittedGen(gen);
+  }, []);
 
-    const q = searchQuery.toLowerCase().trim();
+  const [reloadToken, setReloadToken] = useState(0);
+  const [perspectivePayload, setPerspectivePayload] = useState({
+    perspective: null,
+    models: [],
+    counts: {
+      overall: 500,
+      risers: 500,
+      adopted: 500,
+      speed: 201,
+      open_weights: 267
+    },
+    lastUpdatedText: 'DATA UPDATED JUST NOW',
+    status: 'loading'
+  });
 
-    const filtered = list.filter((t) => {
-      // Search filter
-      if (q) {
-        const matchName = t.name.toLowerCase().includes(q);
-        const matchDesc = t.description?.toLowerCase().includes(q);
-        const matchCat = t.category?.toLowerCase().includes(q);
-        const matchTags = t.tags?.toLowerCase().includes(q);
-        if (!matchName && !matchDesc && !matchCat && !matchTags) return false;
+  const handleSwitchEntityType = useCallback((newEntityType) => {
+    setActiveTab('models');
+    let resetCat = false;
+    if (filters.category !== 'All') {
+      const currentModels = (perspectivePayload.status === 'ready' && perspectivePayload.models?.length > 0)
+        ? perspectivePayload.models
+        : AI_MODELS_DATA;
+      const testView = buildLeaderboardView({
+        models: currentModels,
+        tools: AI_TOOLS_DATA,
+        agents: AI_AGENTS_DATA,
+        mcp: MCP_DATA,
+        filters: { ...filters, entityType: newEntityType },
+        ready: true
+      });
+      if (testView.rows.length === 0) {
+        resetCat = true;
       }
-
-      // Category filter
-      if (activeCategory === "All Categories") return true;
-      const categoryMapping: Record<string, string> = {
-        // Tools tab (toolsData.js TOOL_CATEGORIES)
-        "Coding / Developer": "Coding / Developer",
-        "Search & Research": "Search",
-        "Creative & Audio": "Creative",
-        "Productivity & Workflow": "Productivity",
-        // Agents tab (agentsData.js AGENT_CATEGORIES)
-        "AI Agents": "AI Agents",
-        "Autonomous SWE": "Autonomous SWE",
-        "Coding Agents": "Coding Agents",
-        // MCP tab (mcpData.js MCP_CATEGORIES)
-        "MCP": "MCP",
-        "Developer Tools": "Developer Tools",
-        "Databases": "Databases",
-        "Search & Web": "Search",
-      };
-      const target = categoryMapping[activeCategory] ?? activeCategory;
-      return t.category.toLowerCase().includes(target.toLowerCase());
+    }
+    updateFilters({
+      entityType: newEntityType,
+      ...(resetCat ? { category: 'All' } : {})
     });
+  }, [filters, perspectivePayload, updateFilters]);
 
-    // Apply Sorting logic
-    return [...filtered].sort((a, b) => {
-      if (sortBy === "Rank") return a.rank - b.rank;
-      if (sortBy === "Growth") return b.growth - a.growth;
-      if (sortBy === "Monthly Visits") return parseTraffic(b.visits) - parseTraffic(a.visits);
-      if (sortBy === "Newest") return new Date(b.addedDate).getTime() - new Date(a.addedDate).getTime();
-      return 0;
-    });
-  };
+  const hasActiveFilters = 
+    filters.category !== 'All' || 
+    filters.perspective !== 'overall' || 
+    filters.entityType !== 'models' || 
+    filters.sortBy !== 'rank';
 
-  const matchModelCategory = (m: LeaderboardModel, target: string): boolean => {
-    const cat = m.category.toLowerCase();
-    const name = m.name.toLowerCase();
-    const desc = m.description.toLowerCase();
+  // Compare Modal state
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
 
-    if (target === "Chat / General LLM") {
-      return cat.includes("chat") || cat.includes("general") || cat.includes("llm");
+  // Methodology Drawer state
+  const [isMethodologyOpen, setIsMethodologyOpen] = useState(false);
+
+  const perspectiveCacheRef = useRef(new Map());
+  const requestGateRef = useRef(createRequestGate());
+  const abortControllerRef = useRef(null);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
+  const resolvedPayload = useMemo(() => {
+    if (perspectivePayload.perspective === filters.perspective && perspectivePayload.status === 'ready') {
+      return perspectivePayload;
     }
-    if (target === "Coding") {
-      return cat.includes("code") || cat.includes("coding") || name.includes("code") || name.includes("coder");
+    const cached = perspectiveCacheRef.current.get(filters.perspective);
+    if (cached) {
+      return { ...cached, perspective: filters.perspective, status: 'ready' };
     }
-    if (target === "Reasoning") {
-      return cat.includes("reason") || desc.includes("reasoning");
-    }
-    if (target === "Open Weight") {
-      return cat.includes("open") || (m as unknown as { openSource: boolean }).openSource === true;
-    }
-    if (target === "Multimodal") {
-      return cat.includes("multi") || cat.includes("vision") || cat.includes("audio") || desc.includes("multimodal");
-    }
-    if (target === "Image") {
-      return cat.includes("image");
-    }
-    if (target === "Video") {
-      return cat.includes("video");
-    }
-    if (target === "Audio / Voice") {
-      return cat.includes("audio") || cat.includes("voice");
-    }
-    if (target === "Embeddings") {
-      return cat.includes("embed");
-    }
-    return cat.includes(target.toLowerCase());
-  };
-
-  const getFilteredModels = () => {
-    const q = searchQuery.toLowerCase().trim();
-
-    const filtered = models.filter((m) => {
-      // Search filter
-      if (q) {
-        const matchName = m.name.toLowerCase().includes(q);
-        const matchProv = m.provider?.toLowerCase().includes(q);
-        const matchDesc = m.description?.toLowerCase().includes(q);
-        const matchCat = m.category?.toLowerCase().includes(q);
-        if (!matchName && !matchProv && !matchDesc && !matchCat) return false;
-      }
-
-      if (activeCategory === "All Categories") return true;
-      return matchModelCategory(m, activeCategory);
-    });
-
-    // Apply Sorting logic
-    return [...filtered].sort((a, b) => {
-      if (sortBy === "Rank") return a.rank - b.rank;
-      if (sortBy === "Growth") return b.growth - a.growth;
-      if (sortBy === "Monthly Visits") return parseTraffic(b.visits) - parseTraffic(a.visits);
-      return 0;
-    });
-  };
-
-  const getFilteredCompanies = () => {
-    const q = searchQuery.toLowerCase().trim();
-
-    const filtered = companies.filter((c) => {
-      if (q) {
-        const matchName = c.name.toLowerCase().includes(q);
-        const matchHq = c.headquarters?.toLowerCase().includes(q);
-        const matchDesc = c.description?.toLowerCase().includes(q);
-        if (!matchName && !matchHq && !matchDesc) return false;
-      }
-      return true;
-    });
-
-    // Apply Sorting logic
-    return [...filtered].sort((a, b) => {
-      if (sortBy === "Rank") return a.rank - b.rank;
-      if (sortBy === "Growth") return b.growth - a.growth;
-      if (sortBy === "Monthly Visits") return parseTraffic(b.visits) - parseTraffic(a.visits);
-      return 0;
-    });
-  };
-
-  // Get live count of items for each category pill dynamically
-  const getCountForCategory = (catName: string): number | null => {
-    if (catName === "All Categories") return null;
-    const categoryMapping: Record<string, string> = {
-      "Audio & Voice": "Audio",
-      "Chatbot": "Chatbots",
-      "Code Assistant": "Coding",
-      "Copywriting": "Writing",
-      "Image Generation": "Image Generation",
-      "Productivity": "Productivity",
-      "Video Editing": "Video",
+    return {
+      perspective: filters.perspective,
+      models: [],
+      counts: perspectivePayload.counts,
+      lastUpdatedText: perspectivePayload.lastUpdatedText,
+      status: perspectivePayload.perspective === filters.perspective ? perspectivePayload.status : 'loading'
     };
-    const target = categoryMapping[catName] || catName;
+  }, [filters.perspective, perspectivePayload]);
 
-    if (activeTab === "tools" || activeTab === "bookmarks") {
-      const list = activeTab === "bookmarks" ? tools.filter((t) => bookmarkedIds.has(t.id)) : tools;
-      return list.filter((t) => t.category.toLowerCase().includes(target.toLowerCase())).length;
-    } else if (activeTab === "models") {
-      return models.filter((m) => matchModelCategory(m, catName)).length;
+  const needsRankedModels = filters.entityType === 'models' || filters.entityType === 'all';
+  const rankedModelsReady = !needsRankedModels || resolvedPayload.status === 'ready';
+
+  // For static views (tools, agents, mcp) there is no API fetch, so the perspective useEffect
+  // never fires to advance committedGen. This effect handles that case so the
+  // loading guard (genStale) resolves immediately for static filter changes.
+  useEffect(() => {
+    if (filters.entityType === 'tools' || filters.entityType === 'agents' || filters.entityType === 'mcp' || !needsRankedModels) {
+      setCommittedGen(commitGenRef.current);
     }
-    return null;
+  }, [filters.entityType, filters.category, filters.perspective, needsRankedModels]);
+
+  useEffect(() => {
+    const targetPerspective = filters.perspective;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const request = requestGateRef.current.start(filters);
+    logLeaderboard('FILTER_CHANGE', {
+      requestId: request.requestId,
+      filter: {
+        perspective: targetPerspective,
+        type: filters.entityType,
+        modality: filters.category
+      }
+    });
+
+    const cached = perspectiveCacheRef.current.get(targetPerspective);
+    if (cached) {
+      logLeaderboard('REQUEST_SUCCESS', {
+        requestId: request.requestId,
+        source: 'cache',
+        perspective: targetPerspective,
+        entityType: filters.entityType,
+        modality: filters.category,
+        rowCount: Array.isArray(cached.models) ? cached.models.length : 0
+      });
+      setPerspectivePayload({ ...cached, perspective: targetPerspective, status: 'ready' });
+      // Cache hit: advance generation immediately so the view exits loading guard.
+      setCommittedGen(commitGenRef.current);
+      return () => controller.abort();
+    }
+
+    setPerspectivePayload((prev) => ({
+      ...prev,
+      perspective: targetPerspective,
+      models: [],
+      status: 'loading'
+    }));
+
+    logLeaderboard('REQUEST_START', {
+      requestId: request.requestId,
+      perspective: targetPerspective,
+      entityType: filters.entityType,
+      modality: filters.category
+    });
+
+    const commitIfCurrent = (nextPayload, extraLog = {}) => {
+      const current = filtersRef.current;
+      if (!shouldCommitPerspectiveFetch({
+        requestId: request.requestId,
+        requestPerspective: targetPerspective,
+        currentId: requestGateRef.current.currentId,
+        currentPerspective: current.perspective
+      })) {
+        logLeaderboard('REQUEST_DISCARDED', {
+          requestId: request.requestId,
+          reason: 'stale request',
+          perspective: targetPerspective,
+          entityType: request.filters.entityType,
+          modality: request.filters.category
+        });
+        return false;
+      }
+      perspectiveCacheRef.current.set(targetPerspective, nextPayload);
+      setPerspectivePayload({ ...nextPayload, perspective: targetPerspective, status: 'ready' });
+      // Advance the committed generation so the view exits its loading guard.
+      setCommittedGen(commitGenRef.current);
+      logLeaderboard('REQUEST_SUCCESS', {
+        requestId: request.requestId,
+        perspective: targetPerspective,
+        entityType: current.entityType,
+        modality: current.category,
+        rowCount: Array.isArray(nextPayload.models) ? nextPayload.models.length : 0,
+        ...extraLog
+      });
+      return true;
+    };
+
+    async function loadData() {
+      try {
+        const res = await fetch(`/api/leaderboard?perspective=${targetPerspective}`, {
+          signal: controller.signal
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!data || !Array.isArray(data.models) || data.models.length === 0) {
+          throw new Error('Leaderboard API dataset unavailable');
+        }
+        const { models } = data;
+        commitIfCurrent({
+          models,
+          counts: data.counts,
+          lastUpdatedText: data.lastUpdatedText
+        });
+      } catch (apiErr) {
+        if (apiErr.name === 'AbortError') return;
+
+        console.warn('[Leaderboard] API fetch failed, trying static snapshot fallback:', apiErr.message);
+        try {
+          const snapRes = await fetch('/leaderboard_data.json', { signal: controller.signal });
+          if (!snapRes.ok) throw new Error('Snapshot not found');
+          const snapData = await snapRes.json();
+          const list = snapData.modelsByPerspective?.[targetPerspective]?.models || snapData.models || [];
+          if (!Array.isArray(list) || list.length === 0) throw new Error('Leaderboard snapshot returned no rows');
+          let lastUpdatedText = snapData.metadata?.lastUpdated ? 'DATA UPDATED JUST NOW' : null;
+          if (snapData.metadata?.lastUpdated) {
+            const diffHours = Math.floor((Date.now() - new Date(snapData.metadata.lastUpdated).getTime()) / (1000 * 60 * 60));
+            lastUpdatedText = diffHours >= 1 ? `DATA UPDATED ${diffHours}H AGO` : 'DATA UPDATED JUST NOW';
+          }
+          commitIfCurrent({
+            models: list,
+            counts: snapData.metadata?.counts,
+            lastUpdatedText
+          }, { source: 'snapshot' });
+        } catch (snapErr) {
+          if (snapErr.name === 'AbortError') return;
+          if (shouldCommitPerspectiveFetch({
+            requestId: request.requestId,
+            requestPerspective: targetPerspective,
+            currentId: requestGateRef.current.currentId,
+            currentPerspective: filtersRef.current.perspective
+          })) {
+            setPerspectivePayload((prev) => ({
+              ...prev,
+              perspective: targetPerspective,
+              models: [],
+              status: 'error'
+            }));
+          }
+        }
+      }
+    }
+
+    loadData();
+
+    return () => {
+      controller.abort();
+    };
+  }, [filters.perspective, reloadToken]);
+
+  const handleRetry = () => {
+    perspectiveCacheRef.current.delete(filters.perspective);
+    setPerspectivePayload((prev) => ({
+      ...prev,
+      perspective: filters.perspective,
+      models: [],
+      status: 'loading'
+    }));
+    setReloadToken((token) => token + 1);
   };
 
-  // Dynamic label translator
-  const _ = (key: string) => {
-    return t[lang][key] || key;
-  };
+  const PRIMARY_CATEGORIES = [
+    { value: 'All', label: 'All' },
+    { value: 'Chat', label: 'Chat' },
+    { value: 'Code', label: 'Code' },
+    { value: 'Reasoning', label: 'Reasoning' },
+    { value: 'Image', label: 'Image' },
+    { value: 'Video', label: 'Video' },
+    { value: 'Research', label: 'Research' }
+  ];
 
-  // Render Rank Badges matching Homepage styling with Signal theme accents
-  const renderRankBadge = (rankNum: number) => {
-    if (rankNum === 1) {
+  const view = useMemo(() => {
+    // If committedGen is behind the latest filter-change generation, the filter
+    // state and data state haven't fully reconciled yet — return loading so the
+    // skeleton shows instead of stale rows from the previous filter combination.
+    const genStale = committedGen < commitGenRef.current;
+    if (genStale) {
+      return {
+        appliedFilters: { ...filters },
+        rows: [],
+        entityTypeCounts: { all: 0, models: 0, tools: 0, agents: 0, mcp: 0 },
+        loading: true
+      };
+    }
+
+    const baseModels = (resolvedPayload.status === 'ready' && resolvedPayload.models?.length > 0)
+      ? resolvedPayload.models
+      : AI_MODELS_DATA;
+
+    // Preserve static Image models if target payload lacks image category models
+    const hasImageModel = baseModels.some((m) => matchLeaderboardCategory(m.category, 'Image'));
+    let modelPool = baseModels;
+    if (!hasImageModel) {
+      const staticImageModels = AI_MODELS_DATA.filter((m) => matchLeaderboardCategory(m.category, 'Image'));
+      const existingIds = new Set(baseModels.map((m) => m.id));
+      const extraImageModels = staticImageModels.filter((m) => !existingIds.has(m.id));
+      modelPool = [...baseModels, ...extraImageModels];
+    }
+
+    const nextView = buildLeaderboardView({
+      models: modelPool,
+      tools: AI_TOOLS_DATA,
+      agents: AI_AGENTS_DATA,
+      mcp: MCP_DATA,
+      filters,
+      ready: rankedModelsReady
+    });
+
+    return nextView;
+  }, [filters, resolvedPayload, committedGen, rankedModelsReady]);
+
+  const lastLoggedViewRef = useRef(null);
+  useEffect(() => {
+    if (view.loading) return;
+    const snapshot = {
+      perspective: view.appliedFilters.perspective,
+      entityType: view.appliedFilters.entityType,
+      modality: view.appliedFilters.category,
+      rowCount: view.rows.length
+    };
+    const prev = lastLoggedViewRef.current;
+    if (
+      !prev ||
+      prev.perspective !== snapshot.perspective ||
+      prev.entityType !== snapshot.entityType ||
+      prev.modality !== snapshot.modality ||
+      prev.rowCount !== snapshot.rowCount
+    ) {
+      logLeaderboard('ROWS_UPDATED', snapshot);
+      lastLoggedViewRef.current = snapshot;
+    }
+  }, [view]);
+
+  const filteredModels = view.rows;
+  const entityTypeCounts = view.entityTypeCounts;
+  const isLoading = view.loading;
+  const isError = needsRankedModels && resolvedPayload.status === 'error';
+  const lastUpdatedText = resolvedPayload.lastUpdatedText || 'DATA UPDATED JUST NOW';
+  const perspectiveCounts = resolvedPayload.counts || perspectivePayload.counts;
+  const tableFilters = view.appliedFilters;
+
+  // Context-aware perspective counts aligned with active entityType (All / Models / Tools)
+  const displayPerspectiveCounts = useMemo(() => {
+    const openToolsCount = AI_TOOLS_DATA.filter(
+      (t) => t.isOpenWeights === true || (t.license && t.license.toLowerCase().includes('open'))
+    ).length;
+    const totalToolsCount = AI_TOOLS_DATA.length;
+
+    if (filters.entityType === 'models') {
+      return {
+        overall: perspectiveCounts.overall || 500,
+        risers: perspectiveCounts.risers || 500,
+        adopted: perspectiveCounts.adopted || 500,
+        speed: perspectiveCounts.speed || 201,
+        open_weights: perspectiveCounts.open_weights || 267
+      };
+    } else if (filters.entityType === 'tools') {
+      return {
+        overall: totalToolsCount,
+        risers: totalToolsCount,
+        adopted: totalToolsCount,
+        speed: totalToolsCount,
+        open_weights: openToolsCount
+      };
+    } else if (filters.entityType === 'agents') {
+      const openAgentsCount = AI_AGENTS_DATA.filter((a) => a.isOpenWeights === true).length;
+      return {
+        overall: AI_AGENTS_DATA.length,
+        risers: AI_AGENTS_DATA.length,
+        adopted: AI_AGENTS_DATA.length,
+        speed: AI_AGENTS_DATA.length,
+        open_weights: openAgentsCount
+      };
+    } else if (filters.entityType === 'mcp') {
+      const openMcpCount = MCP_DATA.filter((m) => m.isOpenWeights === true).length;
+      return {
+        overall: MCP_DATA.length,
+        risers: MCP_DATA.length,
+        adopted: MCP_DATA.length,
+        speed: MCP_DATA.length,
+        open_weights: openMcpCount
+      };
+    } else {
+      return {
+        overall: (perspectiveCounts.overall || 500) + totalToolsCount + AI_AGENTS_DATA.length + MCP_DATA.length,
+        risers: (perspectiveCounts.risers || 500) + totalToolsCount + AI_AGENTS_DATA.length + MCP_DATA.length,
+        adopted: (perspectiveCounts.adopted || 500) + totalToolsCount + AI_AGENTS_DATA.length + MCP_DATA.length,
+        speed: (perspectiveCounts.speed || 201) + totalToolsCount + AI_AGENTS_DATA.length + MCP_DATA.length,
+        open_weights: (perspectiveCounts.open_weights || 267) + openToolsCount + AI_AGENTS_DATA.filter((a) => a.isOpenWeights === true).length + MCP_DATA.filter((m) => m.isOpenWeights === true).length
+      };
+    }
+  }, [filters.entityType, perspectiveCounts]);
+
+  // Real dynamic ecosystem stats computed from actual datasets (stable 595 tracked systems across views)
+  const ecosystemStats = useMemo(() => {
+    const modelsCount = perspectiveCounts.overall || 500;
+    const toolsCount = AI_TOOLS_DATA.length;
+    const agentsCount = AI_AGENTS_DATA.length;
+    const mcpCount = MCP_DATA.length;
+    const companiesCount = COMPANIES_DATA.length;
+    const totalTrackedSystems = modelsCount + toolsCount + agentsCount + mcpCount;
+
+    // Real throughput calculation
+    const speeds = LEADERBOARD_DATA.map((m) => m.speedNum || parseInt(m.outputSpeed, 10) || 0).filter((s) => s > 0);
+    const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : null;
+    const fastestSystem = maxSpeed ? LEADERBOARD_DATA.find((m) => (m.speedNum || parseInt(m.outputSpeed, 10)) === maxSpeed) : null;
+
+    // Real growth calculation
+    const growths = LEADERBOARD_DATA.map((m) => parseFloat((m.growth || '').replace(/[^0-9.-]/g, '')) || 0).filter((g) => g > 0);
+    const maxGrowth = growths.length > 0 ? Math.max(...growths) : null;
+    const topGrowthSystem = maxGrowth ? LEADERBOARD_DATA.find((m) => parseFloat((m.growth || '').replace(/[^0-9.-]/g, '')) === maxGrowth) : null;
+
+    return {
+      modelsCount,
+      toolsCount,
+      agentsCount,
+      mcpCount,
+      companiesCount,
+      totalTrackedSystems,
+      maxSpeed,
+      fastestName: fastestSystem?.name || 'Top Model',
+      maxGrowth,
+      topGrowthName: topGrowthSystem?.name || 'Top Mover'
+    };
+  }, [perspectiveCounts.overall]);
+
+  // Live rotating hero telemetry sequence (single metric at a time)
+  const HERO_METRICS = useMemo(() => [
+    { value: `${ecosystemStats.totalTrackedSystems}`, label: 'TRACKED SYSTEMS', sub: 'LIVE INDEX', delta: '+8', badge: 'LIVE' },
+    { value: `${ecosystemStats.modelsCount}`, label: 'MODELS', sub: 'FOUNDATION ARCHITECTURES', delta: '+5', badge: 'Q1 2025' },
+    { value: `${ecosystemStats.toolsCount}`, label: 'TOOLS', sub: 'DEVELOPER APPLICATIONS', delta: '+11', badge: 'Q1 2025' },
+    { value: `${ecosystemStats.companiesCount}`, label: 'AI COMPANIES', sub: 'ENTERPRISE INDEX', delta: '+12', badge: 'Q1 2025' },
+    { value: `${ecosystemStats.maxSpeed ? `${ecosystemStats.maxSpeed} tok/s` : '260 tok/s'}`, label: 'PEAK THROUGHPUT', sub: ecosystemStats.fastestName || 'GROQ INFERENCE', delta: '+18%', badge: 'SPEED' },
+    { value: `${ecosystemStats.maxGrowth ? `+${ecosystemStats.maxGrowth}%` : '+180%'}`, label: 'FASTEST GROWTH', sub: ecosystemStats.topGrowthName || 'MOMENTUM INDEX', delta: '▲ TOP', badge: 'TREND' }
+  ], [ecosystemStats]);
+
+  const [rotatingMetricIndex, setRotatingMetricIndex] = useState(0);
+  const [isMetricTransitioning, setIsMetricTransitioning] = useState(false);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // 1. Smoothly exit to the right
+      setIsMetricTransitioning(true);
+
+      // 2. Switch to next metric and enter from the right
+      const timer = setTimeout(() => {
+        setRotatingMetricIndex((prev) => (prev + 1) % HERO_METRICS.length);
+        setIsMetricTransitioning(false);
+      }, 250);
+
+      return () => clearTimeout(timer);
+    }, 2800);
+
+    return () => clearInterval(interval);
+  }, [HERO_METRICS.length]);
+
+  const currentMetric = HERO_METRICS[rotatingMetricIndex] || HERO_METRICS[0];
+
+  // Compute winners across dimensions for the Compare Modal with strict tie detection
+  const { compareWinners, aggregateVerdict } = useMemo(() => {
+    if (selectedForCompare.length < 2) {
+      return { compareWinners: {}, aggregateVerdict: null };
+    }
+
+    const parsePct = (str) => {
+      if (!str || str === 'N/A') return null;
+      const m = str.match(/(\d+\.?\d*)/);
+      return m ? parseFloat(m[1]) : null;
+    };
+
+    const parseSpeed = (m) => m.speedNum || parseInt(m.outputSpeed, 10) || null;
+
+    const parseCtx = (str) => {
+      if (!str) return null;
+      if (str.includes('M')) return parseFloat(str) * 1000000;
+      if (str.includes('k') || str.includes('K')) return parseFloat(str) * 1000;
+      return parseFloat(str) || null;
+    };
+
+    // Helper: evaluate dimension winners.
+    // If all values are identical, return empty array (zero boxes).
+    // If one max exists, return [winnerId].
+    // If tie for top, return [id1, id2].
+    const findWinners = (extractVal) => {
+      const entries = selectedForCompare
+        .map((m) => ({ id: m.id, val: extractVal(m) }))
+        .filter((e) => e.val !== null && !isNaN(e.val));
+
+      if (entries.length < 2) return [];
+      const values = entries.map((e) => e.val);
+      const maxVal = Math.max(...values);
+      const minVal = Math.min(...values);
+
+      // If all values are equal across models, it's a tie across all -> NO winner box
+      if (maxVal === minVal) return [];
+
+      // Return all IDs matching max
+      return entries.filter((e) => e.val === maxVal).map((e) => e.id);
+    };
+
+    const w = {
+      mmlu: findWinners((m) => parsePct(m.mmluPro)),
+      coding: findWinners((m) => parsePct(m.codingScore)),
+      speed: findWinners((m) => parseSpeed(m)),
+      context: findWinners((m) => parseCtx(m.contextWindow))
+    };
+
+    // Compute aggregate verdict
+    const winCounts = {};
+    selectedForCompare.forEach((m) => {
+      winCounts[m.id] = 0;
+    });
+
+    const evaluatedDimensions = ['mmlu', 'coding', 'speed', 'context'];
+    let totalActiveDimensions = 0;
+
+    evaluatedDimensions.forEach((dim) => {
+      if (w[dim].length > 0) {
+        totalActiveDimensions++;
+        w[dim].forEach((id) => {
+          winCounts[id] = (winCounts[id] || 0) + 1;
+        });
+      }
+    });
+
+    let topModelId = null;
+    let maxWins = 0;
+    let isVerdictTie = false;
+
+    Object.entries(winCounts).forEach(([id, count]) => {
+      if (count > maxWins) {
+        maxWins = count;
+        topModelId = id;
+        isVerdictTie = false;
+      } else if (count === maxWins && count > 0) {
+        isVerdictTie = true;
+      }
+    });
+
+    let verdict = null;
+    if (topModelId && maxWins > 0 && !isVerdictTie) {
+      const topModel = selectedForCompare.find((m) => m.id === topModelId);
+      const shortName = topModel ? (topModel.name.startsWith('OpenAI ') ? topModel.name.replace('OpenAI ', '') : topModel.name.split(' ').slice(0, 2).join(' ')) : 'Model';
+      verdict = `${shortName} leads on ${maxWins} of ${totalActiveDimensions} comparable benchmark metrics`;
+    } else if (isVerdictTie && maxWins > 0) {
+      verdict = `Models are tied across comparable benchmark dimensions`;
+    } else {
+      verdict = `Systems share comparable performance characteristics`;
+    }
+
+    return { compareWinners: w, aggregateVerdict: verdict };
+  }, [selectedForCompare]);
+
+  // Helper to render rank delta
+  const renderRankDeltaBadge = (model) => {
+    if (model.rankDelta === 'NEW') {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#F5A623]/10 border border-[#F5A623]/30 text-[#F5A623] font-bold text-xs select-none shadow-[0_0_10px_rgba(245,166,35,0.15)]">
-          <span>🥇</span>
-          <span className="font-mono">#1</span>
+        <span 
+          className="text-[9.5px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+          title="New addition to index"
+          aria-label="New addition to index"
+        >
+          NEW
         </span>
       );
     }
-    if (rankNum === 2) {
+    if (model.rankDelta && model.rankDelta.startsWith('+')) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-400/10 border border-slate-400/30 text-slate-200 font-bold text-xs select-none">
-          <span>🥈</span>
-          <span className="font-mono">#2</span>
+        <span 
+          className="text-[10px] font-bold text-emerald-400 flex items-center font-mono"
+          title={`Rank up by ${model.rankDelta.replace('+', '')} places`}
+          aria-label={`Rank up by ${model.rankDelta.replace('+', '')} places`}
+        >
+          ▲{model.rankDelta.replace('+', '')}
         </span>
       );
     }
-    if (rankNum === 3) {
+    if (model.rankDelta && model.rankDelta.startsWith('-')) {
       return (
-        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-700/15 border border-amber-600/30 text-amber-300 font-bold text-xs select-none">
-          <span>🥉</span>
-          <span className="font-mono">#3</span>
+        <span 
+          className="text-[10px] font-bold text-red-400 flex items-center font-mono"
+          title={`Rank down by ${model.rankDelta.replace('-', '')} places`}
+          aria-label={`Rank down by ${model.rankDelta.replace('-', '')} places`}
+        >
+          ▼{model.rankDelta.replace('-', '')}
         </span>
       );
     }
     return (
-      <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#18181C] border border-[#232326] text-[#A1A1AA] font-mono text-xs font-semibold">
-        #{rankNum}
+      <span 
+        className="text-[10px] text-[#71717A] font-mono"
+        title="Rank stable this period"
+        aria-label="Rank stable this period"
+      >
+        —
       </span>
     );
   };
 
-  // Safe Tags parsing
-  const renderTags = (tagsStr: string) => {
-    let tagList: string[] = [];
-    if (tagsStr) {
-      try {
-        const parsed = JSON.parse(tagsStr);
-        tagList = Array.isArray(parsed) ? parsed : [parsed.toString()];
-      } catch {
-        tagList = tagsStr.split(",").map((t) => t.trim());
-      }
-    }
-    return (
-      <div className="flex flex-row flex-nowrap gap-1.5 overflow-hidden max-w-[200px]">
-        {tagList.slice(0, 2).map((tag, idx) => (
-          <span key={`${tag}-${idx}`} className="px-2.5 py-1 rounded-md bg-white/5 backdrop-blur-md text-[10px] text-white border border-white/10 font-semibold whitespace-nowrap group-hover:border-white/20 transition-all">
-            {tag}
-          </span>
-        ))}
-      </div>
-    );
+  // Helper for tapered medal and rank indicator stripes (ranks 1-10)
+  const getMedalStripeClass = (rank) => {
+    if (rank === 1) return 'border-l-4 border-l-[#F5A623] bg-[#F5A623]/[0.05]';
+    if (rank === 2) return 'border-l-4 border-l-[#CBD5E1] bg-white/[0.04]';
+    if (rank === 3) return 'border-l-4 border-l-[#EA580C] bg-[#EA580C]/[0.05]';
+    if (rank === 4) return 'border-l-4 border-l-zinc-400/50';
+    if (rank === 5) return 'border-l-4 border-l-zinc-400/40';
+    if (rank === 6) return 'border-l-4 border-l-zinc-400/32';
+    if (rank === 7) return 'border-l-4 border-l-zinc-500/26';
+    if (rank === 8) return 'border-l-4 border-l-zinc-500/20';
+    if (rank === 9) return 'border-l-4 border-l-zinc-600/15';
+    if (rank === 10) return 'border-l-4 border-l-zinc-600/10';
+    return 'border-l-4 border-l-transparent';
   };
-
-  // Comprehensive real-tool logo domain map
-  const LOGO_DOMAIN_MAP: Record<string, string> = {
-    "chatgpt": "openai.com", "openai": "openai.com", "gpt-4": "openai.com",
-    "gpt-4o": "openai.com", "gpt-3.5": "openai.com", "dall-e": "openai.com", "dalle": "openai.com",
-    "o1-": "openai.com", "o3-": "openai.com", "o4-": "openai.com", "gpt-": "openai.com",
-    "claude": "anthropic.com", "anthropic": "anthropic.com",
-    "gemini": "google.com", "google": "google.com", "deepmind": "google.com", "bard": "google.com", "gemma": "google.com",
-    "llama": "meta.com", "meta ai": "meta.com",
-    "mistral": "mistral.ai", "mixtral": "mistral.ai", "le chat": "mistral.ai",
-    "cohere": "cohere.com", "command r": "cohere.com",
-    "ai21": "ai21.com", "jamba": "ai21.com", "jurassic": "ai21.com",
-    "deepseek": "deepseek.com",
-    "grok": "x.ai", "xai": "x.ai",
-    "qwen": "alibabacloud.com", "alibaba": "alibabacloud.com",
-    "groq": "groq.com",
-    "together ai": "together.ai", "together": "together.ai",
-    "replicate": "replicate.com",
-    "hugging face": "huggingface.co", "huggingface": "huggingface.co",
-    "perplexity": "perplexity.ai",
-    "inflection": "inflection.ai",
-    "zhipu": "zhipuai.cn", "chatglm": "zhipuai.cn",
-    "moonshot": "moonshot.cn", "kimi": "moonshot.cn",
-    "baidu": "baidu.com", "ernie": "baidu.com",
-    "cursor": "cursor.com",
-    "github copilot": "github.com", "copilot": "github.com",
-    "replit": "replit.com",
-    "tabnine": "tabnine.com",
-    "codeium": "codeium.com", "windsurf": "codeium.com",
-    "devin": "cognition.ai", "cognition": "cognition.ai",
-    "bolt": "bolt.new",
-    "lovable": "lovable.dev",
-    "v0": "v0.dev",
-    "midjourney": "midjourney.com",
-    "stable diffusion": "stability.ai", "stability": "stability.ai", "dreamstudio": "stability.ai",
-    "leonardo": "leonardo.ai",
-    "adobe firefly": "adobe.com", "firefly": "adobe.com", "adobe": "adobe.com",
-    "craiyon": "craiyon.com",
-    "canva": "canva.com",
-    "pika": "pika.art",
-    "kling": "klingai.com",
-    "haiper": "haiper.ai",
-    "runway": "runwayml.com", "runwayml": "runwayml.com", "gen-3": "runwayml.com",
-    "elevenlabs": "elevenlabs.io", "eleven labs": "elevenlabs.io",
-    "lovo": "lovo.ai", "genny": "lovo.ai",
-    "play.ht": "play.ht", "playht": "play.ht",
-    "murf": "murf.ai",
-    "suno": "suno.com",
-    "udio": "udio.com",
-    "heygen": "heygen.com",
-    "descript": "descript.com",
-    "synthesia": "synthesia.io",
-    "d-id": "d-id.com",
-    "voicemaker": "voicemaker.in",
-    "resemble": "resemble.ai",
-    "natural readers": "naturalreaders.com",
-    "wellsaid": "wellsaidlabs.com",
-    "soundraw": "soundraw.io",
-    "chatbase": "chatbase.co",
-    "framer": "framer.com",
-    "screaming frog": "screamingfrog.co.uk",
-    "blackbox": "blackbox.ai",
-    "cody": "sourcegraph.com",
-    "warp": "warp.dev",
-    "continue": "continue.dev",
-    "sweep": "sweep.dev",
-    "sourcery": "sourcery.ai",
-    "clipdrop": "clipdrop.co",
-    "recraft": "recraft.ai",
-    "pixelcut": "pixelcut.ai",
-    "remove.bg": "remove.bg", "remove-bg": "remove.bg",
-    "playground": "playground.com",
-    "nightcafe": "nightcafe.studio",
-    "beatoven": "beatoven.ai",
-    "ultimate.ai": "ultimate.ai", "ultimate-ai": "ultimate.ai",
-    "julius": "julius.ai",
-    "harvey": "harvey.ai",
-    "feathery": "feathery.io",
-    "rewind": "rewind.ai",
-    "luma": "lumalabs.ai",
-    "jasper": "jasper.ai",
-    "copy.ai": "copy.ai", "copyai": "copy.ai",
-    "writesonic": "writesonic.com",
-    "grammarly": "grammarly.com",
-    "notion": "notion.so",
-    "beautiful.ai": "beautiful.ai", "beautiful ai": "beautiful.ai",
-    "tome": "tome.app",
-    "gamma": "gamma.app",
-    "figma": "figma.com",
-    "otter": "otter.ai",
-    "fireflies": "fireflies.ai",
-    "mem": "mem.ai",
-    "character.ai": "character.ai", "character ai": "character.ai",
-    "poe": "poe.com",
-    "you.com": "you.com",
-    "amazon": "aws.amazon.com", "alexa": "aws.amazon.com", "bedrock": "aws.amazon.com",
-    "microsoft": "microsoft.com", "azure": "microsoft.com", "bing": "microsoft.com",
-    "apple": "apple.com", "siri": "apple.com",
-    "samsung": "samsung.com", "gauss": "samsung.com",
-    "nvidia": "nvidia.com",
-    "ibm": "ibm.com", "watson": "ibm.com",
-    "salesforce": "salesforce.com", "einstein": "salesforce.com",
-  };
-
-  const getLogoUrl = (name: string): string => {
-    const n = name.toLowerCase().trim();
-    if (n.includes("phind")) return "https://avatars.githubusercontent.com/u/144394874?v=4";
-    if (n.includes("beatoven")) return "https://avatars.githubusercontent.com/u/85035121?v=4";
-    if (n.includes("dreamstudio") || n.includes("stability")) return "https://avatars.githubusercontent.com/u/100950301?v=4";
-    if (n.includes("podcastle")) return "https://avatars.githubusercontent.com/u/19472846?v=4";
-
-    for (const [key, domain] of Object.entries(LOGO_DOMAIN_MAP)) {
-      if (n === key || n.includes(key)) {
-        return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-      }
-    }
-    const slug = n.replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
-    return `https://www.google.com/s2/favicons?domain=${slug}.com&sz=128`;
-  };
-
-  const resolveLogoUrl = (url: string | undefined | null, name: string) => {
-    const n = name.toLowerCase().trim();
-    if (
-      n.includes("phind") ||
-      n.includes("beatoven") ||
-      n.includes("dreamstudio") ||
-      n.includes("stability") ||
-      n.includes("podcastle")
-    ) {
-      return getLogoUrl(name);
-    }
-
-    if (url && url.includes("logo.clearbit.com")) {
-      const domain = url.split("logo.clearbit.com/")[1];
-      return `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-    }
-    return url || getLogoUrl(name);
-  };
-
-  const getInitials = (name: string) => name.trim().charAt(0).toUpperCase();
-
-  const handleLogoError = (e: React.SyntheticEvent<HTMLImageElement, Event>, name: string) => {
-    const target = e.currentTarget;
-    target.style.display = "none";
-    const parent = target.parentElement;
-    if (parent && !parent.querySelector(".logo-fallback-initial")) {
-      const span = document.createElement("span");
-      span.className = "logo-fallback-initial";
-      span.textContent = getInitials(name);
-      span.style.cssText = "display:flex;align-items:center;justify-content:center;width:100%;height:100%;font-size:16px;font-weight:800;color:#fff;background:#18181C;";
-      parent.appendChild(span);
-    }
-  };
-
-  const currentFilteredTools = getFilteredTools();
-  const currentFilteredModels = getFilteredModels();
-  const currentFilteredCompanies = getFilteredCompanies();
-
-  const totalTools = currentFilteredTools.length;
-  const totalModels = currentFilteredModels.length;
-  const totalCompanies = currentFilteredCompanies.length;
-
-  const currentTotal = activeTab === "tools" || activeTab === "agents" || activeTab === "mcp"
-    ? totalTools
-    : activeTab === "models"
-    ? totalModels
-    : totalCompanies;
-
-  const totalPages = Math.max(1, Math.ceil(currentTotal / pageSize));
-
-  const visibleTools = currentFilteredTools.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const visibleModels = currentFilteredModels.slice((currentPage - 1) * pageSize, currentPage * pageSize);
-  const visibleCompanies = currentFilteredCompanies.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
-    <div className="w-full flex flex-col flex-1 bg-[#000000] text-white selection:bg-neutral-800 selection:text-white">
-      {/* Main Leaderboard Content Frame matching Tools page spacing & structure */}
-      <div id="leaderboard" className="w-full px-4 sm:px-6 lg:px-8 pt-2 pb-6 flex-1 flex flex-col">
-        <div className="mx-auto w-full max-w-[1600px] flex-1 flex flex-col">
+    <div className="min-h-screen bg-black text-white selection:bg-[#6E56CF]/30 pb-28">
+      {/* Hero Section */}
+      <div className="border-b border-[#1C1C1F] bg-black pt-4 pb-3.5 sm:pt-5 sm:pb-4 px-3.5 sm:px-8 relative">
+        <div className="mx-auto max-w-[1440px]">
+          {/* Top Eyebrow */}
+          <div className="flex items-center gap-2 text-[10.5px] sm:text-[11px] font-mono tracking-wider uppercase text-[#71717A] mb-2 sm:mb-2.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#10B981] shrink-0" />
+            <span className="text-[#E4E4E7] font-semibold">LIVE BENCHMARK INDEX</span>
+            <span className="text-[#3F3F46]">·</span>
+            <span className="text-[#71717A]">INDEPENDENT EVALUATION INDEX</span>
+          </div>
 
-          {/* Subcategories Row - EXACT MATCH TO TOOLS PAGE */}
-          <div
-            ref={subCatContainerRef}
-            className="mb-2 -mx-4 sm:mx-0 px-4 sm:px-0 flex items-center justify-start gap-1.5 touch-scroll-x pb-2.5 scrollbar-none w-auto sm:w-full overflow-x-auto scroll-smooth"
-          >
-            {getCategoriesForTab().map((cat) => {
-              const isSelected = activeCategory === cat;
-              return (
-                <button
-                  key={cat}
-                  ref={(el) => { subCatRefs.current[cat] = el; }}
-                  onClick={() => {
-                    setActiveCategory(cat);
-                  }}
-                  className={`rounded-full px-3.5 py-1 text-[12px] font-semibold whitespace-nowrap transition-all duration-200 border active:scale-95 cursor-pointer shrink-0 ${
-                    isSelected
-                      ? "bg-white text-black border-white shadow-lg shadow-white/5"
-                      : "text-neutral-400 hover:text-white bg-[#131316]/50 border-[#232326]/60 hover:border-white/[0.15]"
+          {/* Main Headline (Left) & Single Live Rotating Metric (Right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center mb-3.5 sm:mb-4.5">
+            {/* Left Column: Headline & Description */}
+            <div className="lg:col-span-8">
+              <h1 className="text-3xl sm:text-4xl lg:text-[42px] font-extrabold tracking-tight text-white leading-tight whitespace-nowrap mb-1.5">
+                AI Ecosystem Leaderboard
+              </h1>
+              <p className="text-xs sm:text-sm text-[#A1A1AA] leading-snug font-normal whitespace-nowrap overflow-hidden text-ellipsis">
+                Compare the models, tools, and companies shaping the AI ecosystem. Track real-world evaluation benchmarks, Chatbot Arena Elo scores, and enterprise pricing at scale.
+              </p>
+            </div>
+
+
+            {/* Right Column: Rotating Metric Card — matches Image 2 design */}
+            <div className="lg:col-span-4 flex lg:justify-end">
+              <div className="w-full lg:w-auto lg:min-w-[270px] border border-[#2D2D38] rounded-xl bg-[#0D0D12] px-5 py-4 flex flex-col gap-2.5 shadow-xl">
+                {/* Header row — label + badge animate with the metric */}
+                <div
+                  className={`flex items-center justify-between transition-all duration-300 ease-out transform ${
+                    isMetricTransitioning ? 'opacity-0 -translate-y-1' : 'opacity-100 translate-y-0'
                   }`}
                 >
-                  {cat === "All Categories" ? "All" : _(cat)}
+                  <div className="flex items-center gap-2 text-[11px] font-mono tracking-widest uppercase text-white font-bold">
+                    <span className="w-2 h-2 rounded-full bg-[#6E56CF] shrink-0" />
+                    <span>{currentMetric.label}</span>
+                  </div>
+                  <span className="text-[11px] font-mono font-bold text-[#A78BFA] bg-[#6E56CF]/20 border border-[#6E56CF]/50 rounded px-2 py-0.5 shadow-sm">
+                    {currentMetric.badge}
+                  </span>
+                </div>
+
+                {/* Big number + delta */}
+                <div
+                  className={`transition-all duration-300 ease-out transform ${
+                    isMetricTransitioning
+                      ? 'opacity-0 translate-x-4'
+                      : 'opacity-100 translate-x-0'
+                  }`}
+                >
+                  <div className="flex items-end gap-2.5">
+                    <div className="text-5xl sm:text-6xl font-extrabold font-mono text-white tracking-tight leading-none">
+                      {currentMetric.value}
+                    </div>
+                    <div className="flex flex-col gap-0.5 mb-1">
+                      <span className="text-[13px] font-extrabold font-mono text-[#10B981] leading-none">▲{currentMetric.delta}</span>
+                      <span className="text-[11px] font-mono text-[#D4D4D8] font-bold leading-none">vs last</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="h-[4px] w-full rounded-full bg-[#1C1C24] overflow-hidden">
+                  <div className="h-full w-3/4 bg-gradient-to-r from-[#6E56CF] via-[#A78BFA] to-[#10B981] rounded-full" />
+                </div>
+
+                {/* Footer row — sub label + "LOAD AUDITED" */}
+                <div
+                  className={`flex items-center justify-between transition-all duration-300 ease-out transform ${
+                    isMetricTransitioning ? 'opacity-0 translate-y-1' : 'opacity-100 translate-y-0'
+                  }`}
+                >
+                  <span className="text-[11px] font-mono tracking-widest uppercase text-[#E4E4E7] font-bold">
+                    {currentMetric.sub}
+                  </span>
+                  <span className="text-[10px] font-mono text-[#10B981] bg-[#10B981]/15 px-2 py-0.5 rounded border border-[#10B981]/35 font-extrabold uppercase tracking-widest shadow-sm">
+                    LOAD AUDITED
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Bottom Switcher: Models vs Agents vs MCP vs Companies + Technical Status */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#1C1C1F]">
+            <div className="inline-flex p-0.5 rounded-xl bg-[#131316] border border-[#232328] shadow-inner overflow-x-auto scrollbar-none max-w-full">
+              <button
+                onClick={() => handleSwitchEntityType('models')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'models' && filters.entityType === 'models'
+                    ? 'bg-[#6E56CF] text-white shadow-md shadow-[#6E56CF]/30'
+                    : 'text-[#A1A1AA] hover:text-white hover:bg-[#18181f]'
+                }`}
+              >
+                <Cpu size={14} />
+                <span>AI Models</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === 'models' && filters.entityType === 'models' ? 'bg-white/20 text-white' : 'bg-[#1f1f26] text-[#71717A]'
+                }`}>
+                  {ecosystemStats.modelsCount}
+                </span>
+              </button>
+
+              <button
+                onClick={() => handleSwitchEntityType('agents')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'models' && filters.entityType === 'agents'
+                    ? 'bg-[#6E56CF] text-white shadow-md shadow-[#6E56CF]/30'
+                    : 'text-[#A1A1AA] hover:text-white hover:bg-[#18181f]'
+                }`}
+              >
+                <Bot size={14} />
+                <span>AI Agents</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === 'models' && filters.entityType === 'agents' ? 'bg-white/20 text-white' : 'bg-[#1f1f26] text-[#71717A]'
+                }`}>
+                  {ecosystemStats.agentsCount}
+                </span>
+              </button>
+
+              <button
+                onClick={() => handleSwitchEntityType('mcp')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'models' && filters.entityType === 'mcp'
+                    ? 'bg-[#6E56CF] text-white shadow-md shadow-[#6E56CF]/30'
+                    : 'text-[#A1A1AA] hover:text-white hover:bg-[#18181f]'
+                }`}
+              >
+                <Server size={14} />
+                <span>MCP Servers</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === 'models' && filters.entityType === 'mcp' ? 'bg-white/20 text-white' : 'bg-[#1f1f26] text-[#71717A]'
+                }`}>
+                  {ecosystemStats.mcpCount}
+                </span>
+              </button>
+
+              <button
+                onClick={() => handleSwitchEntityType('tools')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'models' && filters.entityType === 'tools'
+                    ? 'bg-[#6E56CF] text-white shadow-md shadow-[#6E56CF]/30'
+                    : 'text-[#A1A1AA] hover:text-white hover:bg-[#18181f]'
+                }`}
+              >
+                <Wrench size={14} />
+                <span>AI Tools</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === 'models' && filters.entityType === 'tools' ? 'bg-white/20 text-white' : 'bg-[#1f1f26] text-[#71717A]'
+                }`}>
+                  {ecosystemStats.toolsCount}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab('companies')}
+                className={`flex items-center gap-2 px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-lg text-xs sm:text-sm font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeTab === 'companies'
+                    ? 'bg-[#6E56CF] text-white shadow-md shadow-[#6E56CF]/30'
+                    : 'text-[#A1A1AA] hover:text-white hover:bg-[#18181f]'
+                }`}
+              >
+                <Building2 size={14} />
+                <span>AI Companies — Top 100</span>
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold ${
+                  activeTab === 'companies' ? 'bg-white/20 text-white' : 'bg-[#1f1f26] text-[#71717A]'
+                }`}>
+                  {ecosystemStats.companiesCount}
+                </span>
+              </button>
+            </div>
+
+            <div className="text-[11px] sm:text-[12px] font-mono tracking-wider flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[#10B981] animate-pulse shrink-0" />
+              <span className="text-[#10B981] font-bold">{lastUpdatedText || 'DATA UPDATED JUST NOW'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content Area */}
+      <div className="mx-auto max-w-[1440px] px-3.5 sm:px-8 pt-6 sm:pt-8">
+        {/* If Companies Tab is active, render Part B */}
+        {activeTab === 'companies' && (
+          <CompaniesLeaderboardSection />
+        )}
+
+        {/* If Models Tab is active, render Part A */}
+        {activeTab === 'models' && (
+          <>
+            {/* 1. Dynamic Perspective Tabs */}
+            <PerspectiveTabs
+              perspectives={PERSPECTIVE_OPTIONS}
+              activePerspective={filters.perspective}
+              onSelectPerspective={(id) => updateFilters({ perspective: id })}
+              perspectiveCounts={displayPerspectiveCounts}
+              onOpenMethodology={() => setIsMethodologyOpen(true)}
+            />
+
+        {/* 2. Sub-Filter & Controls Bar: Entity Type, Categories, Sort, Compare, Clear */}
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 sm:mb-8">
+          {/* Left: Category Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none pb-1 -mx-3.5 px-3.5 sm:mx-0 sm:px-0">
+            {PRIMARY_CATEGORIES.map((cat) => {
+              const isSelected = filters.category === cat.value;
+              return (
+                <button
+                  key={cat.value}
+                  onClick={() => updateFilters({ category: cat.value })}
+                  className={`rounded-full px-3.5 py-1 text-[11px] font-bold whitespace-nowrap transition-all duration-200 border cursor-pointer shrink-0 ${
+                    isSelected
+                      ? 'bg-white text-black border-white shadow-sm'
+                      : 'text-[#E4E4E7] hover:text-white bg-[#16161B] border-[#2A2A33] hover:border-white/50 shadow-sm'
+                  }`}
+                >
+                  {cat.label}
                 </button>
               );
             })}
           </div>
 
-          {/* Controls Bar (Search, Language, Sort) */}
-          <div className="flex items-center justify-end gap-2.5 mb-4 w-full">
-            {/* Table Search filter */}
-            <div className="relative inline-flex items-center">
-              <Search size={13} className="absolute left-2.5 text-[#71717A] pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={_("searchPlaceholder")}
-                className="w-44 sm:w-56 rounded-lg border border-[#232326] bg-[#131316] pl-7 pr-7 text-[12px] font-semibold text-white placeholder:text-[#71717A] hover:border-[#F5A623]/50 focus:outline-none focus:border-[#F5A623] transition-all h-8"
-              />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery("")}
-                  className="absolute right-2 text-[#71717A] hover:text-white"
-                >
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-
-            {/* Language dropdown switch */}
-            <div className="relative inline-flex items-center">
-              <Globe size={13} className="absolute left-2.5 text-[#71717A] pointer-events-none" />
-              <select
-                value={lang}
-                onChange={(e) => setLang(e.target.value as "en" | "hi")}
-                className="appearance-none rounded-lg border border-[#232326] bg-[#131316] pl-7 pr-7 py-1.5 text-[13px] font-semibold text-[#A1A1AA] hover:text-white hover:border-[#F5A623]/50 focus:outline-none transition-all cursor-pointer h-8"
-              >
-                <option value="en">EN</option>
-                <option value="hi">हिंदी</option>
-              </select>
-              <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
-            </div>
-
-            {/* Sort select */}
+          {/* Right: Sort + Compare + Clear */}
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
             <div className="relative inline-flex items-center">
               <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="appearance-none rounded-lg border border-[#232326] bg-[#131316] pl-3 pr-8 py-1.5 text-[13px] font-semibold text-white hover:border-[#F5A623]/50 focus:outline-none transition-all cursor-pointer h-8"
+                id="leaderboard-sort-select"
+                name="sortBy"
+                value={filters.sortBy}
+                onChange={(e) => updateFilters({ sortBy: e.target.value })}
+                className="appearance-none rounded-xl border border-[#3a3a40] bg-[#16161b] pl-3 pr-8 text-[12px] font-medium text-white hover:border-[#4a4a52] focus:outline-none focus:border-white/40 focus:ring-2 focus:ring-white/20 transition-all cursor-pointer h-9"
               >
-                <option value="Rank">{_("sortRank")}</option>
-                <option value="Monthly Visits">{_("sortVisits")}</option>
-                <option value="Growth">{_("sortGrowth")}</option>
-                {activeTab === "tools" && <option value="Newest">{_("sortNewest")}</option>}
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value} className="bg-[#16161b] text-white">
+                    {opt.label}
+                  </option>
+                ))}
               </select>
               <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#71717A] pointer-events-none" />
             </div>
+
+            {selectedForCompare.length > 0 && (
+              <button
+                onClick={() => setIsCompareModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1 text-xs font-semibold text-white bg-[#22222a] hover:bg-[#2b2b35] border border-[#383844] rounded-xl transition-all shadow-sm h-9 cursor-pointer active:scale-95 shrink-0"
+              >
+                <GitCompare size={13} className="text-white" />
+                <span>Compare ({selectedForCompare.length})</span>
+              </button>
+            )}
+
+            <button
+              onClick={handleClearFilters}
+              disabled={!hasActiveFilters}
+              className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-xl border h-9 transition-all shrink-0 ${
+                hasActiveFilters
+                  ? 'text-white bg-[#1f1f26] border-[#383842] hover:bg-[#272732] cursor-pointer shadow-sm'
+                  : 'text-[#52525B] bg-[#141418] border-[#232328] cursor-not-allowed opacity-50'
+              }`}
+              title={hasActiveFilters ? "Reset all filter criteria" : "No active filters to reset"}
+            >
+              <RotateCcw size={12} className={hasActiveFilters ? "text-white" : "text-[#52525B]"} />
+              <span className="hidden sm:inline">Clear</span>
+            </button>
           </div>
+        </div>
 
-        {/* Loading Spinner */}
-        {loading ? (
-          <div className="flex-1 flex flex-col items-center justify-center py-20">
-            <div className="h-7 w-7 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-            <span className="text-xs text-[#71717A] mt-4 animate-pulse">{_("loading")}</span>
-          </div>
-        ) : (
-          <div className="border border-[#232326]/70 rounded-xl overflow-hidden bg-[#0d0d10] shadow-xl">
-            
-            {/* 1. Tools, Agents, MCP View */}
-            {(activeTab === "tools" || activeTab === "agents" || activeTab === "mcp") && (
-              currentFilteredTools.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                  <div className="h-12 w-12 rounded-full border border-[#232326] bg-[#131316] flex items-center justify-center text-[#71717A] mb-3">
-                    <SearchX size={20} />
-                  </div>
-                  <h3 className="text-sm font-bold text-white mb-1">{_("noResultsTitle")}</h3>
-                  <p className="text-xs text-[#71717A] max-w-sm mb-4">{_("noResultsSub")}</p>
-                  {(searchQuery || activeCategory !== "All Categories") && (
-                    <button
-                      onClick={() => {
-                        setSearchQuery("");
-                        setActiveCategory("All Categories");
-                      }}
-                      className="px-3 py-1.5 rounded-lg border border-[#232326] bg-[#131316] text-xs font-semibold text-white hover:border-[#F5A623] transition-all"
-                    >
-                      {_("clearFilters")}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="overflow-x-auto touch-scroll-x">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-[#232326] text-[10px] font-bold tracking-wider text-[#71717A] uppercase bg-[#131316]/70">
-                        <th className="py-3.5 px-6 w-24">{_("rank")}</th>
-                        <th className="py-3.5 px-6">{_("tool")}</th>
-                        <th className="py-3.5 px-6">{_("tags")}</th>
-                        <th className="py-3.5 px-6 text-right w-40">{_("monthlyVisits")}</th>
-                        <th className="py-3.5 px-6 text-right w-36">{_("growth")}</th>
-                        <th className="py-3.5 px-6 text-center w-36">{_("action")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleTools.map((tool) => (
-                        <tr
-                          key={tool.id}
-                          className="relative border-b border-[#232326]/50 hover:bg-gradient-to-r hover:from-[#131316] hover:to-[#18181C] transition-all duration-300 group hover:shadow-[0_4px_20px_rgba(0,0,0,0.4)] hover:z-10"
-                        >
-                          <td className="py-4 px-6 font-bold text-base">
-                            <div className="relative flex items-center">
-                              {/* Left hover edge highlight bar */}
-                              <span className="pointer-events-none absolute -left-6 top-1/2 h-0 w-[3px] -translate-y-1/2 rounded-full bg-[#F5A623] shadow-[0_0_10px_#F5A623] transition-all duration-300 group-hover:h-[80%]" />
-                              {renderRankBadge(tool.rank)}
-                            </div>
-                          </td>
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-3">
-                              <div className="h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[#232326] bg-[#131316] flex relative p-1.5 shadow-lg group-hover:border-[#F5A623]/50 group-hover:shadow-[0_0_15px_rgba(245,166,35,0.2)] transition-all duration-300">
-                                <span className="text-white font-black text-base uppercase select-none z-0">
-                                  {tool.name.charAt(0)}
-                                </span>
-                                <img
-                                  src={resolveLogoUrl(tool.logoUrl, tool.name)}
-                                  alt={tool.name}
-                                  className="h-full w-full object-contain absolute z-10 p-1.5 bg-[#18181C]"
-                                  onError={(e) => handleLogoError(e, tool.name)}
-                                />
-                              </div>
-                              <div className="min-w-0">
-                                <h4 className="font-bold text-white text-[15px] truncate group-hover:bg-clip-text group-hover:text-transparent group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-[#F5A623] transition-all duration-300">
-                                  {tool.name}
-                                </h4>
-                                <div className="flex items-start gap-1.5 mt-1.5 bg-[#1A1A1E]/50 p-2 rounded-md border border-[#232326]/50">
-                                  <Info size={14} className="shrink-0 mt-0.5 text-[#F5A623]/70" />
-                                  <p className="text-[12.5px] text-[#D4D4D8] line-clamp-2 max-w-md leading-relaxed">
-                                    {tool.description}
-                                  </p>
-                                </div>
-                                <p className="text-[10px] text-[#71717A] uppercase font-bold tracking-wider line-clamp-1 mt-1.5">
-                                  {tool.category} • {tool.pricing}
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6">
-                            {renderTags(tool.tags)}
-                          </td>
-                          <td className="py-4 px-6 text-right font-mono text-xs font-semibold text-white">
-                            {tool.visits}
-                          </td>
-                          <td className="py-4 px-6 text-right font-mono text-xs font-bold">
-                            <span
-                              className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded-md font-mono text-xs font-semibold border",
-                                tool.growth >= 0
-                                  ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                                  : "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                              )}
-                            >
-                              {tool.growth >= 0 ? `+${tool.growth}%` : `${tool.growth}%`}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 text-center">
-                            <div className="flex items-center justify-center gap-3">
-                              <button
-                                onClick={() => toggleLocalBookmark(tool.id)}
-                                className={cn(
-                                  "p-1.5 rounded-lg transition-all hover:bg-[#232326] active:scale-90",
-                                  bookmarkedIds.has(tool.id) ? "text-[#F5A623]" : "text-[#71717A] hover:text-white"
-                                )}
-                                title={bookmarkedIds.has(tool.id) ? "Bookmarked" : "Bookmark tool"}
-                              >
-                                <Bookmark size={16} className={cn(bookmarkedIds.has(tool.id) && "fill-[#F5A623]")} />
-                              </button>
-                              <a
-                                href={tool.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-[#232326] bg-gradient-to-b from-[#18181C] to-[#131316] text-xs font-bold text-white hover:border-[#F5A623] hover:shadow-[0_0_15px_rgba(245,166,35,0.25)] hover:text-[#F5A623] transition-all duration-300 active:scale-95"
-                              >
-                                {_("visit")}
-                                <ArrowUpRight size={13} className="text-[#71717A] group-hover:text-white" />
-                              </a>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            )}
-
-            {/* 2. Models View */}
-            {activeTab === "models" && (
-              currentFilteredModels.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                  <div className="h-12 w-12 rounded-full border border-[#232326] bg-[#131316] flex items-center justify-center text-[#71717A] mb-3">
-                    <SearchX size={20} />
-                  </div>
-                  <h3 className="text-sm font-bold text-white mb-1">{_("noResultsTitle")}</h3>
-                  <p className="text-xs text-[#71717A] max-w-sm mb-4">{_("noResultsSub")}</p>
-                  {(searchQuery || activeCategory !== "All Categories") && (
-                    <button
-                      onClick={() => {
-                        setSearchQuery("");
-                        setActiveCategory("All Categories");
-                      }}
-                      className="px-3 py-1.5 rounded-lg border border-[#232326] bg-[#131316] text-xs font-semibold text-white hover:border-[#F5A623] transition-all"
-                    >
-                      {_("clearFilters")}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="overflow-x-auto touch-scroll-x">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-[#232326] text-[10px] font-bold tracking-wider text-[#71717A] uppercase bg-[#131316]/70">
-                        <th className="py-3.5 px-6 w-24">{_("rank")}</th>
-                        <th className="py-3.5 px-6">{_("model")}</th>
-                        <th className="py-3.5 px-6 w-32">{_("context")}</th>
-                        <th className="py-3.5 px-6 text-right w-40">{_("monthlyHits")}</th>
-                        <th className="py-3.5 px-6 text-right w-36">{_("growth")}</th>
-                        <th className="py-3.5 px-6 text-center w-28">{_("action")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleModels.map((model) => (
-                        <tr
-                          key={model.id}
-                          className="relative border-b border-[#1B1B1F] hover:bg-[#18181C]/60 transition-colors group"
-                        >
-                          <td className="py-4 px-6 font-bold text-base">
-                            <div className="relative flex items-center">
-                              <span className="pointer-events-none absolute -left-6 top-1/2 h-0 w-[3px] -translate-y-1/2 rounded-full bg-[var(--color-signal)] transition-all duration-200 group-hover:h-[70%]" />
-                              {renderRankBadge(model.rank)}
-                            </div>
-                          </td>
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#232326]/70 bg-[#18181C] flex relative p-1.5 shadow-inner">
-                                <span className="text-white font-black text-sm uppercase select-none z-0">
-                                  {model.name.charAt(0)}
-                                </span>
-                                <img
-                                  src={resolveLogoUrl(model.logoUrl, model.name)}
-                                  alt={model.name}
-                                  className="h-full w-full object-contain absolute z-10 p-1.5 bg-[#18181C]"
-                                  onError={(e) => handleLogoError(e, model.name)}
-                                />
-                              </div>
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-bold text-white text-[15px] truncate group-hover:text-[#F5A623] transition-colors">
-                                    {model.name}
-                                  </h4>
-                                  {model.openSource && (
-                                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/10 text-[9px] text-emerald-400 border border-emerald-500/20 font-mono font-semibold">
-                                      Open
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-xs text-[#A1A1AA] line-clamp-1 mt-0.5">
-                                  {model.description}
-                                </p>
-                                <p className="text-[10px] text-[#71717A] font-bold uppercase tracking-wider mt-0.5">
-                                  {model.provider}
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6 text-xs text-[#A1A1AA] font-mono font-medium">
-                            {model.contextWindow}
-                          </td>
-                          <td className="py-4 px-6 text-right font-mono text-xs font-semibold text-white">
-                            {model.visits}
-                          </td>
-                          <td className="py-4 px-6 text-right font-mono text-xs font-bold">
-                            <span
-                              className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded-md font-mono text-xs font-semibold border",
-                                model.growth >= 0
-                                  ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                                  : "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                              )}
-                            >
-                              {model.growth >= 0 ? `+${model.growth}%` : `${model.growth}%`}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 text-center">
-                            <a
-                              href={model.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#232326] bg-[#131316] text-xs font-semibold text-white hover:border-[#F5A623] hover:text-white transition-all active:scale-95 shadow-sm"
-                            >
-                              {_("visit")}
-                              <ArrowUpRight size={13} className="text-[#71717A] group-hover:text-white" />
-                            </a>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            )}
-
-            {/* 3. Companies View */}
-            {activeTab === "companies" && (
-              currentFilteredCompanies.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                  <div className="h-12 w-12 rounded-full border border-[#232326] bg-[#131316] flex items-center justify-center text-[#71717A] mb-3">
-                    <SearchX size={20} />
-                  </div>
-                  <h3 className="text-sm font-bold text-white mb-1">{_("noResultsTitle")}</h3>
-                  <p className="text-xs text-[#71717A] max-w-sm mb-4">{_("noResultsSub")}</p>
-                  {searchQuery && (
-                    <button
-                      onClick={() => setSearchQuery("")}
-                      className="px-3 py-1.5 rounded-lg border border-[#232326] bg-[#131316] text-xs font-semibold text-white hover:border-[#F5A623] transition-all"
-                    >
-                      {_("clearFilters")}
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="overflow-x-auto touch-scroll-x">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="border-b border-[#232326] text-[10px] font-bold tracking-wider text-[#71717A] uppercase bg-[#131316]/70">
-                        <th className="py-3.5 px-6 w-24">{_("rank")}</th>
-                        <th className="py-3.5 px-6">{_("company")}</th>
-                        <th className="py-3.5 px-6 text-center w-28">{_("products")}</th>
-                        <th className="py-3.5 px-6 text-right w-40">{_("monthlyTraffic")}</th>
-                        <th className="py-3.5 px-6 text-right w-36">{_("growth")}</th>
-                        <th className="py-3.5 px-6 text-center w-28">{_("action")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {visibleCompanies.map((company) => (
-                        <tr
-                          key={company.id}
-                          className="relative border-b border-[#1B1B1F] hover:bg-[#18181C]/60 transition-colors group"
-                        >
-                          <td className="py-4 px-6 font-bold text-base">
-                            <div className="relative flex items-center">
-                              <span className="pointer-events-none absolute -left-6 top-1/2 h-0 w-[3px] -translate-y-1/2 rounded-full bg-[var(--color-signal)] transition-all duration-200 group-hover:h-[70%]" />
-                              {renderRankBadge(company.rank)}
-                            </div>
-                          </td>
-                          <td className="py-4 px-6">
-                            <div className="flex items-center gap-3">
-                              <div className="h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#232326]/70 bg-[#18181C] flex relative p-1.5 shadow-inner">
-                                <span className="text-white font-black text-sm uppercase select-none z-0">
-                                  {company.name.charAt(0)}
-                                </span>
-                                <img
-                                  src={resolveLogoUrl(company.logoUrl, company.name)}
-                                  alt={company.name}
-                                  className="h-full w-full object-contain absolute z-10 p-1.5 bg-[#18181C]"
-                                  onError={(e) => handleLogoError(e, company.name)}
-                                />
-                              </div>
-                              <div className="min-w-0">
-                                <h4 className="font-bold text-white text-[15px] truncate group-hover:text-[#F5A623] transition-colors">
-                                  {company.name}
-                                </h4>
-                                <p className="text-xs text-[#A1A1AA] line-clamp-1 mt-0.5">
-                                  {company.description}
-                                </p>
-                                <p className="text-[10px] text-[#71717A] font-bold uppercase tracking-wider mt-0.5">
-                                  {company.headquarters}
-                                </p>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="py-4 px-6 text-center font-mono font-semibold text-xs text-white">
-                            {company.productsCount}
-                          </td>
-                          <td className="py-4 px-6 text-right font-mono text-xs font-semibold text-white">
-                            {company.visits}
-                          </td>
-                          <td className="py-4 px-6 text-right font-mono text-xs font-bold">
-                            <span
-                              className={cn(
-                                "inline-flex items-center px-2 py-0.5 rounded-md font-mono text-xs font-semibold border",
-                                company.growth >= 0
-                                  ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20"
-                                  : "text-rose-400 bg-rose-500/10 border-rose-500/20"
-                              )}
-                            >
-                              {company.growth >= 0 ? `+${company.growth}%` : `${company.growth}%`}
-                            </span>
-                          </td>
-                          <td className="py-4 px-6 text-center">
-                            <a
-                              href={company.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#232326] bg-[#131316] text-xs font-semibold text-white hover:border-[#F5A623] hover:text-white transition-all active:scale-95 shadow-sm"
-                            >
-                              {_("visit")}
-                              <ArrowUpRight size={13} className="text-[#71717A] group-hover:text-white" />
-                            </a>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )
-            )}
+        {/* State 1: Error State */}
+        {isError && (
+          <div className="p-8 rounded-2xl border border-red-900/40 bg-red-950/20 text-center max-w-md mx-auto my-12">
+            <AlertCircle size={36} className="text-red-400 mx-auto mb-3" />
+            <h3 className="text-base font-bold text-white mb-1">Couldn't load the leaderboard</h3>
+            <p className="text-xs text-[#A1A1AA] mb-4">
+              Unable to reach the live evaluation telemetry API. Please check your connection and try again.
+            </p>
+            <button
+              onClick={handleRetry}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-white text-black hover:bg-[#E4E4E7] transition-all cursor-pointer"
+            >
+              <RefreshCw size={13} />
+              <span>Retry</span>
+            </button>
           </div>
         )}
 
-        {/* Unified Floating Pill Pagination */}
-        {!loading && currentTotal > 0 && (
-          <Pagination
-            page={currentPage}
-            totalPages={totalPages}
-            pageSize={pageSize}
-            totalCount={currentTotal}
-            onPageChange={(p) => {
-              setCurrentPage(p);
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }}
-            onPageSizeChange={(s) => {
-              setPageSize(s);
-              setCurrentPage(1);
-            }}
-          />
+        {/* State 2: Loading Skeleton */}
+        {!isError && isLoading && <LeaderboardSkeleton />}
+
+        {/* State 3: Empty State */}
+        {!isError && !isLoading && filteredModels.length === 0 && (
+          <div className="p-12 rounded-2xl border border-[#232326] bg-[#111115] text-center max-w-md mx-auto my-8">
+            <RotateCcw size={36} className="text-[#71717A] mx-auto mb-3 opacity-50" />
+            <h3 className="text-base font-bold text-white mb-1">No results in this view</h3>
+            <p className="text-xs text-[#A1A1AA] mb-5">
+              Try switching back to the Overall tab or clearing your category filters.
+            </p>
+            <button
+              onClick={handleClearFilters}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold bg-white text-black hover:bg-[#E4E4E7] transition-all cursor-pointer"
+            >
+              <RotateCcw size={12} />
+              <span>Reset all filters</span>
+            </button>
+          </div>
+        )}
+
+        {/* State 4: Loaded Table & Mobile Cards */}
+        {!isError && !isLoading && filteredModels.length > 0 && (
+          <div className="space-y-4">
+            {/* Desktop Table */}
+            <div className="hidden sm:block rounded-2xl border border-[#232326] bg-[#111115] overflow-hidden shadow-xl">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <AdaptiveTableHeaders category={tableFilters.category} entityType={tableFilters.entityType} />
+                  </thead>
+                  <tbody className="divide-y divide-[#1F1F24] text-[#E4E4E7]">
+                    {filteredModels.map((model) => {
+                      const isCompared = selectedForCompare.some((m) => m.id === model.id);
+                      const isTool = model.entityType === 'tool';
+                      const displayRank = model.displayRank || model.rank;
+
+                      return (
+                        <tr
+                          key={`${model.id || "model"}-${model.entityType || "item"}-${displayRank}`}
+                          className={`transition-colors group cursor-pointer ${
+                            displayRank === 1
+                              ? 'hover:bg-[#1a1710]'
+                              : displayRank === 2
+                              ? 'hover:bg-[#18181e]'
+                              : displayRank === 3
+                              ? 'hover:bg-[#181512]'
+                              : 'hover:bg-[#181820]'
+                          }`}
+                          onClick={() => router.push(`/leaderboard/${model.slug}`)}
+                        >
+                          {/* Rank badge with Delta & Tapered Stripe */}
+                          <td 
+                            className={`py-2.5 px-3.5 text-center transition-colors relative ${getMedalStripeClass(displayRank)}`} 
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="flex flex-col items-center">
+                              <span
+                                className={`inline-flex items-center justify-center w-7 h-7 rounded-xl font-bold font-mono text-xs ${
+                                  displayRank === 1
+                                    ? 'bg-gradient-to-br from-[#F5A623] via-[#FBBF24] to-[#D97706] text-black font-extrabold shadow-md shadow-[#F5A623]/30 border border-[#FCD34D]/60'
+                                    : displayRank === 2
+                                    ? 'bg-gradient-to-br from-[#FFFFFF] via-[#E2E8F0] to-[#94A3B8] text-[#0F172A] font-extrabold shadow-md shadow-white/25 border border-white/80 ring-1 ring-white/30'
+                                    : displayRank === 3
+                                    ? 'bg-gradient-to-br from-[#FDBA74] via-[#EA580C] to-[#9A3412] text-white font-extrabold shadow-md shadow-[#EA580C]/35 border border-[#FDBA74]/60 ring-1 ring-[#EA580C]/30'
+                                    : 'text-[#A1A1AA] bg-[#16161c] border border-[#232328]'
+                                }`}
+                              >
+                                #{displayRank}
+                              </span>
+                              <div className="mt-0.5">{renderRankDeltaBadge(model)}</div>
+                            </div>
+                          </td>
+
+                          {/* Model / Tool Info */}
+                          <td className="py-2.5 px-3.5">
+                            <div className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-bold text-sm text-white group-hover:text-[#A78BFA] transition-colors">
+                                  {model.name}
+                                </span>
+                                {model.badge && (
+                                  <span className="text-[9.5px] font-semibold px-1.5 py-0.2 rounded bg-[#1e1e26] border border-[#2e2e38] text-[#A1A1AA]">
+                                    {model.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[11px] text-[#71717A] font-mono">
+                                  {model.org}
+                                </span>
+                                {(model.superpowerShort || model.superpower) && (
+                                  <SuperpowerBadge
+                                    superpower={model.superpowerShort || model.superpower}
+                                    category={model.category}
+                                  />
+                                )}
+                                {isTool && tableFilters.entityType !== 'tools' && model.categoryMetricValue && (
+                                  <span className="text-[10px] text-[#A1A1AA] font-mono bg-[#181820] px-1.5 py-0.5 rounded border border-[#272730]">
+                                    {model.categoryMetricLabel ? `${model.categoryMetricLabel}: ` : ''}{model.categoryMetricValue}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Metric 1 (Arena Elo / Tool Rating / Agent Win Rate / MCP Version) */}
+                          <td className="py-2.5 px-3.5 font-mono font-bold text-white text-[13px]">
+                            {tableFilters.entityType === 'agents' ? (
+                              <div>
+                                <span className="text-[#A78BFA]">{model.categoryMetricValue || '—'}</span>
+                                {model.categoryMetricLabel && (
+                                  <span className="text-[10px] text-[#71717A] block font-sans font-normal">{model.categoryMetricLabel}</span>
+                                )}
+                              </div>
+                            ) : tableFilters.entityType === 'mcp' ? (
+                              <div>
+                                <span className="text-emerald-400">{model.categoryMetricValue || model.version || 'v1.0'}</span>
+                                {model.categoryMetricLabel && (
+                                  <span className="text-[10px] text-[#71717A] block font-sans font-normal">{model.categoryMetricLabel}</span>
+                                )}
+                              </div>
+                            ) : tableFilters.entityType === 'tools' ? (
+                              <div>
+                                <span>{model.categoryMetricValue || '—'}</span>
+                                {model.categoryMetricLabel && (
+                                  <span className="text-[10px] text-[#71717A] block font-sans font-normal">{model.categoryMetricLabel}</span>
+                                )}
+                              </div>
+                            ) : isTool ? (
+                              <span className="text-[#71717A] font-mono text-xs font-normal" title="Arena Elo is not applicable to developer tools">
+                                —
+                              </span>
+                            ) : (
+                              <div className="flex items-center gap-1.5">
+                                <span>{model.categoryMetricValue || model.arenaElo || '—'}</span>
+                                {model.eloChange && (
+                                  <span className="text-[10px] text-emerald-400 font-normal">
+                                    {model.eloChange}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Metric 2 (Coding Score / Key Benchmark / Eval Sessions / Transport) */}
+                          <td className="py-2.5 px-3.5 font-mono text-[#E4E4E7] font-semibold">
+                            {tableFilters.entityType === 'agents' ? (
+                              <div>
+                                <span>{model.categorySubMetricValue || '—'}</span>
+                                {model.categorySubMetricLabel && (
+                                  <span className="text-[10px] text-[#71717A] block font-sans font-normal">{model.categorySubMetricLabel}</span>
+                                )}
+                              </div>
+                            ) : tableFilters.entityType === 'mcp' ? (
+                              <div>
+                                <span className="text-xs">{model.categorySubMetricValue || 'stdio / http'}</span>
+                                {model.categorySubMetricLabel && (
+                                  <span className="text-[10px] text-[#71717A] block font-sans font-normal">{model.categorySubMetricLabel}</span>
+                                )}
+                              </div>
+                            ) : tableFilters.entityType === 'tools' ? (
+                              <div>
+                                <span>{model.categorySubMetricValue || model.codingScore || '—'}</span>
+                                {model.categorySubMetricLabel && (
+                                  <span className="text-[10px] text-[#71717A] block font-sans font-normal">{model.categorySubMetricLabel}</span>
+                                )}
+                              </div>
+                            ) : isTool ? (
+                              model.codingScore ? (
+                                <div className="flex items-center gap-1.5">
+                                  <span>{model.codingScore}</span>
+                                  <span className="text-[9.5px] text-[#71717A] font-sans font-normal">SWE</span>
+                                </div>
+                              ) : (
+                                <span className="text-[#71717A] font-mono text-xs font-normal" title="Not applicable">—</span>
+                              )
+                            ) : (
+                              model.categorySubMetricValue || model.codingScore || model.mmluPro || '—'
+                            )}
+                          </td>
+
+                          {/* Metric 3 (Speed tok/s / Active Scale / Obs / Registry) */}
+                          <td className="py-2.5 px-3.5 font-mono text-[#A1A1AA]">
+                            {tableFilters.entityType === 'agents' ? (
+                              <span className="text-xs">{model.categoryDimension3 || '—'}</span>
+                            ) : tableFilters.entityType === 'mcp' ? (
+                              <span className="inline-flex items-center gap-1.5 text-[10.5px] text-emerald-400 font-mono bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                {model.categoryDimension3 || 'Official Registry'}
+                              </span>
+                            ) : tableFilters.entityType === 'tools' ? (
+                              <span>{model.categoryDimension3 || model.outputSpeed || model.monthlyVisits || '—'}</span>
+                            ) : isTool ? (
+                              <span className="text-[#71717A] font-mono text-xs" title="Token throughput (tok/s) is not applicable to developer tools">
+                                —
+                              </span>
+                            ) : (
+                              model.categoryDimension3 || (model.outputSpeed ? `${model.outputSpeed} tok/s` : '—')
+                            )}
+                          </td>
+
+                          {/* Pricing / License */}
+                          <td className="py-2.5 px-3.5 font-mono text-xs text-[#E4E4E7]">
+                            {tableFilters.entityType === 'agents' ? (
+                              <span className="text-xs text-white/90">{model.license || model.price || 'Commercial API'}</span>
+                            ) : tableFilters.entityType === 'mcp' ? (
+                              <span className="text-xs text-emerald-300 font-medium">{model.price || 'Free Protocol'}</span>
+                            ) : (
+                              model.price
+                            )}
+                          </td>
+
+                          {/* Category */}
+                          <td className="py-2.5 px-3.5">
+                            <span className="px-2.5 py-1 rounded-full text-[10.5px] font-medium bg-[#1a1a20] border border-[#272730] text-[#A1A1AA]">
+                              {model.category}
+                            </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-2.5 px-3.5 text-right" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                onClick={() => onToggleCompare(model)}
+                                className={`px-3 py-1 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                                  isCompared
+                                    ? 'bg-emerald-500/10 border-emerald-500/35 text-emerald-400'
+                                    : 'bg-[#18181c] text-[#A1A1AA] border-[#27272e] hover:text-white hover:border-[#3f3f46]'
+                                }`}
+                                title={isCompared ? "Remove from comparison" : "Add to comparison"}
+                                aria-label={isCompared ? `Remove ${model.name} from comparison` : `Compare ${model.name}`}
+                              >
+                                {isCompared ? 'Added' : 'Compare'}
+                              </button>
+
+                              <Link href={`/leaderboard/${model.slug}`}
+                                className="px-3.5 py-1 rounded-lg text-xs font-semibold bg-white text-black hover:bg-[#E4E4E7] transition-all flex items-center justify-center cursor-pointer shadow-sm"
+                              >
+                                Details
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Mobile Cards (<= 640px) */}
+            <div className="sm:hidden space-y-3">
+              {filteredModels.map((model) => {
+                const isCompared = selectedForCompare.some((m) => m.id === model.id);
+                return (
+                  <MobileLeaderboardCard
+                    key={`mobile-${model.id || "model"}-${model.entityType || "item"}-${model.displayRank || model.rank || "row"}`}
+                    model={model}
+                    isCompared={isCompared}
+                    onToggleCompare={onToggleCompare}
+                  />
+                );
+              })}
+            </div>
+          </div>
+
+        )}
+        </>
         )}
       </div>
+
+      {/* Floating Quick Compare Dock with Dimension Winners */}
+      <QuickCompareDock
+        selectedModels={selectedForCompare}
+        onToggleCompare={onToggleCompare}
+        onClearCompare={onClearCompare}
+        onOpenModal={() => setIsCompareModalOpen(true)}
+      />
+
+      {/* Side-by-Side Direct Comparison Modal */}
+      {isCompareModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md overflow-y-auto cursor-pointer"
+          onClick={() => setIsCompareModalOpen(false)}
+        >
+          <div 
+            className="relative w-full max-w-5xl rounded-2xl border border-[#27272a] bg-[#111114] shadow-2xl p-5 sm:p-7 my-auto text-white animate-in fade-in zoom-in-95 duration-150 cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-4 border-b border-[#232326]">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/10 text-white flex items-center justify-center">
+                  <GitCompare size={18} />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-white">Head-to-Head Model Comparison</h3>
+                  <p className="text-xs text-[#A1A1AA]">Benchmarking {selectedForCompare.length} AI systems side-by-side with verified signals</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsCompareModalOpen(false)}
+                className="w-8 h-8 rounded-lg border border-[#232326] bg-[#16161a] flex items-center justify-center text-[#A1A1AA] hover:text-white cursor-pointer transition-colors"
+                title="Close modal"
+                aria-label="Close modal"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Aggregate Verdict Banner */}
+            {aggregateVerdict && (
+              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#141418] border border-[#27272e] text-xs text-[#E4E4E7] shadow-sm">
+                <Trophy size={13} className="text-emerald-400 shrink-0" />
+                <span className="font-medium">{aggregateVerdict}</span>
+              </div>
+            )}
+
+            {/* Comparison Matrix Table */}
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="border-b border-[#232326] bg-[#141418]">
+                    <th className="p-3 text-[11px] uppercase tracking-wider text-[#71717A] font-semibold w-40 min-w-[140px]">Metric</th>
+                    {selectedForCompare.map((m) => (
+                      <th key={m.id} className="p-3 min-w-[200px]">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold text-sm text-white">{m.name}</span>
+                          <button 
+                            onClick={() => onToggleCompare(m)} 
+                            className="text-[#71717A] hover:text-white cursor-pointer"
+                            title={`Remove ${m.name}`}
+                          >
+                            <X size={12} />
+                          </button>
+                        </div>
+                        <span className="text-[11px] text-[#A1A1AA] block">{m.org} • {m.category}</span>
+                        <span className="text-xs font-mono font-bold text-[#F5A623]">{m.categoryMetricValue || `${m.arenaElo} Elo`}</span>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#1F1F24] text-[#E4E4E7]">
+                  <tr className="bg-[#131316]/50">
+                    <td className="p-3 text-[#71717A] font-medium">Arena Ranking</td>
+                    {selectedForCompare.map((m) => (
+                      <td key={m.id} className="p-3 font-mono min-w-[200px]">
+                        <span className={m.rank === 1 ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded font-bold' : 'text-white font-bold'}>
+                          #{m.rank}
+                        </span>
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-[#71717A] font-medium">Superpower</td>
+                    {selectedForCompare.map((m) => (
+                      <td key={m.id} className="p-3 font-medium text-white min-w-[200px]">
+                        <SuperpowerBadge superpower={m.superpowerShort || m.superpower} category={m.category} />
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="bg-[#131316]/50">
+                    <td className="p-3 text-[#71717A] font-medium">MMLU Pro Score</td>
+                    {selectedForCompare.map((m) => {
+                      const isWinner = (compareWinners.mmlu || []).includes(m.id);
+                      return (
+                        <td key={m.id} className="p-3 font-mono min-w-[200px]">
+                          <span className={isWinner ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded font-bold' : 'text-[#E4E4E7] font-semibold'}>
+                            {m.mmluPro || 'N/A'}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-[#71717A] font-medium">Coding Score</td>
+                    {selectedForCompare.map((m) => {
+                      const isWinner = (compareWinners.coding || []).includes(m.id);
+                      return (
+                        <td key={m.id} className="p-3 font-mono min-w-[200px]">
+                          <span className={isWinner ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded font-bold' : 'text-[#E4E4E7] font-semibold'}>
+                            {m.codingScore || 'N/A'}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr className="bg-[#131316]/50">
+                    <td className="p-3 text-[#71717A] font-medium">Output Throughput</td>
+                    {selectedForCompare.map((m) => {
+                      const isWinner = (compareWinners.speed || []).includes(m.id);
+                      return (
+                        <td key={m.id} className="p-3 font-mono min-w-[200px]">
+                          <span className={isWinner ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded font-bold' : 'text-[#E4E4E7]'}>
+                            {m.outputSpeed || 'N/A'}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-[#71717A] font-medium">Context Window</td>
+                    {selectedForCompare.map((m) => {
+                      const isWinner = (compareWinners.context || []).includes(m.id);
+                      return (
+                        <td key={m.id} className="p-3 font-mono min-w-[200px]">
+                          <span className={isWinner ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded font-bold' : 'text-[#E4E4E7]'}>
+                            {m.contextWindow || 'N/A'}
+                          </span>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr className="bg-[#131316]/50">
+                    <td className="p-3 text-[#71717A] font-medium">Pricing Model</td>
+                    {selectedForCompare.map((m) => (
+                      <td key={m.id} className="p-3 font-mono text-xs text-[#E4E4E7] min-w-[200px]">{m.price}</td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="p-3 text-[#71717A] font-medium">License / Delivery</td>
+                    {selectedForCompare.length >= 2 && selectedForCompare.every((m) => (m.licenseType || m.license || 'API') === (selectedForCompare[0].licenseType || selectedForCompare[0].license || 'API')) ? (
+                      <td colSpan={selectedForCompare.length} className="p-3 text-center text-[#A1A1AA] italic font-mono text-xs bg-[#131316]/30">
+                        {selectedForCompare[0].licenseType || selectedForCompare[0].license || 'Commercial API'} (all models match)
+                      </td>
+                    ) : (
+                      selectedForCompare.map((m) => (
+                        <td key={m.id} className="p-3 text-white min-w-[200px]">{m.licenseType || m.license || 'API'}</td>
+                      ))
+                    )}
+                  </tr>
+                  <tr className="bg-[#131316]/50">
+                    <td className="p-3 text-[#71717A] font-medium">Key Highlights</td>
+                    {selectedForCompare.map((m) => (
+                      <td key={m.id} className="p-3 min-w-[200px] align-top">
+                        <ul className="list-disc list-inside space-y-1 text-[11px] text-[#A1A1AA] min-h-[44px]">
+                          {(m.keyFeatures || []).slice(0, 2).map((f, i) => (
+                            <li key={i} className="line-clamp-2">{f}</li>
+                          ))}
+                        </ul>
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mt-4 pt-3 border-t border-[#232326] flex items-center justify-between">
+              <button
+                onClick={onClearCompare}
+                className="text-xs text-[#71717A] hover:text-red-400 hover:bg-red-950/20 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+              >
+                Clear comparison
+              </button>
+              <button
+                onClick={() => setIsCompareModalOpen(false)}
+                className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-white text-black hover:bg-[#E4E4E7] transition-all cursor-pointer shadow-sm active:scale-95"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Methodology & Data Transparency Drawer */}
+      <MethodologyDrawer
+        isOpen={isMethodologyOpen}
+        onClose={() => setIsMethodologyOpen(false)}
+      />
     </div>
-  </div>
-);
+  );
 }
+
+
+export default LeaderboardClient;
