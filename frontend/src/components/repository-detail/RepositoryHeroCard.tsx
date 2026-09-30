@@ -10,6 +10,7 @@ import Globe from "lucide-react/dist/esm/icons/globe";
 import FileText from "lucide-react/dist/esm/icons/file-text";
 import ArrowUpRight from "lucide-react/dist/esm/icons/arrow-up-right";
 import { RepositoryDetailResponse } from "@/lib/types";
+import { resolveCompanyLogo } from "@/lib/companyLogos";
 
 interface RepositoryHeroCardProps {
   repo: RepositoryDetailResponse;
@@ -35,7 +36,8 @@ const getRelativeTime = (dateStr?: string | null) => {
 };
 
 export function RepositoryHeroCard({ repo }: RepositoryHeroCardProps) {
-  const avatarUrl = repo.logoUrl || repo.ownerAvatarUrl;
+  const [imgFailed, setImgFailed] = React.useState(false);
+  const avatarUrl = resolveCompanyLogo(repo.owner, repo.logoUrl || repo.ownerAvatarUrl, true);
   const updateHours = getRelativeTime(repo.syncedAt) || getRelativeTime(repo.githubCreatedAt) || "—";
   const forksCount = repo.forks !== undefined && repo.forks !== null ? repo.forks : 0;
 
@@ -45,15 +47,16 @@ export function RepositoryHeroCard({ repo }: RepositoryHeroCardProps) {
       <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between w-full">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6 min-w-0 flex-1">
           {/* Logo Container */}
-          <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] bg-neutral-950 p-2 shadow-xl self-start">
-            {avatarUrl ? (
+          <div className="relative flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-white/[0.08] bg-white p-2 shadow-xl self-start">
+            {avatarUrl && !imgFailed ? (
               <img
                 src={avatarUrl}
                 alt={`${repo.owner} logo`}
                 className="h-full w-full object-contain"
+                onError={() => setImgFailed(true)}
               />
             ) : (
-              <span className="text-2xl font-bold text-white select-none">
+              <span className="text-2xl font-bold text-neutral-900 select-none">
                 {repo.owner.charAt(0).toUpperCase()}
               </span>
             )}

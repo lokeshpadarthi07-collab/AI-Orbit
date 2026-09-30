@@ -1,6 +1,6 @@
 'use client';
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Github from "lucide-react/dist/esm/icons/github";
 import Star from "lucide-react/dist/esm/icons/star";
@@ -8,6 +8,7 @@ import GitFork from "lucide-react/dist/esm/icons/git-fork";
 import { Repository } from "@/lib/types";
 
 import { API_URL, prefetchUrl } from "@/lib/api";
+import { resolveCompanyLogo } from "@/lib/companyLogos";
 
 interface RepositoryRowProps {
   repo: Repository;
@@ -59,7 +60,13 @@ export const RepositoryRow = React.memo(function RepositoryRow({ repo }: Reposit
   const sizeText = `${(repo.stars / 210 + 1.2).toFixed(1)} MB`;
   
   const licenseText = repo.license || null;
-  const avatarUrl = repo.logoUrl || repo.ownerAvatarUrl;
+  const companyLogo = resolveCompanyLogo(repo.owner, repo.logoUrl || repo.ownerAvatarUrl, true);
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  useEffect(() => {
+    setLogoFailed(false);
+  }, [companyLogo]);
+
   const updateHours = getRelativeTime(repo.syncedAt) || getRelativeTime(repo.githubCreatedAt) || "—";
 
   const repoSlug = repo.slug || repo.name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -95,25 +102,35 @@ export const RepositoryRow = React.memo(function RepositoryRow({ repo }: Reposit
         className="hidden sm:grid grid-cols-[minmax(0,2.5fr)_minmax(0,1.8fr)_minmax(0,1.5fr)_60px] md:grid-cols-[minmax(0,2.2fr)_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_60px] lg:grid-cols-[minmax(0,2fr)_minmax(0,1.5fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_60px] xl:grid-cols-[minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_60px] gap-[10px] items-center py-[7px] px-[9px] h-[65px] bg-transparent hover:bg-white/[0.02] transition-colors w-full focus-visible:bg-white/[0.02] focus-visible:outline-none group border-b border-white/[0.06] last:border-b-0 cursor-pointer"
       >
 
-        {/* Column 2: Repository Name (Vertically Centered) */}
+        {/* Column 1: Repository Name (Vertically Centered) */}
         <div className="min-w-0 flex items-center h-full text-left pl-5">
           <RepositoryTitle name={repo.name} className="group-hover:text-white transition-colors" />
         </div>
 
-        {/* Column 3: Company / Owner */}
-        <div className="min-w-0 flex items-center gap-[6px] text-[13px] text-[#A1A1AA] font-semibold hidden md:flex text-left">
-          {avatarUrl ? (
-            <img
-              src={avatarUrl}
-              alt={`${repo.owner} logo`}
-              className="h-[20px] w-[20px] rounded-[3px] shrink-0 object-cover"
-            />
-          ) : (
-            <div className="h-[20px] w-[20px] rounded-[3px] shrink-0 bg-neutral-800 flex items-center justify-center text-[10px] font-black text-white">
-              {repo.owner.charAt(0).toUpperCase()}
-            </div>
-          )}
-          <span className="truncate">{repo.owner}</span>
+        {/* Column 2: Company / Owner */}
+        <div className="min-w-0 flex items-center gap-2.5 text-[13px] text-[#A1A1AA] font-semibold hidden md:flex text-left">
+          <div className="flex h-8 w-8 md:h-11 md:w-11 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#232326]/60 bg-white group-hover:border-[#6E56CF] transition-colors">
+            {companyLogo && !logoFailed ? (
+              <img
+                src={companyLogo}
+                alt={`${repo.owner} logo`}
+                width={40}
+                height={40}
+                loading="lazy"
+                decoding="async"
+                className="h-6 w-6 md:h-9 md:w-9 object-contain"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <span
+                aria-label={`${repo.owner} logo`}
+                className="flex h-6 w-6 md:h-9 md:w-9 items-center justify-center rounded-md bg-neutral-100 text-xs md:text-sm font-bold text-neutral-900"
+              >
+                {repo.owner.charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+          <span className="truncate text-white text-[13px] font-medium group-hover:text-white transition-colors">{repo.owner}</span>
         </div>
 
         {/* Column 4: Stars */}
@@ -182,12 +199,29 @@ export const RepositoryRow = React.memo(function RepositoryRow({ repo }: Reposit
         style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif' }}
         className="flex sm:hidden p-[12px] bg-transparent hover:bg-white/[0.02] transition-colors w-full focus-visible:bg-white/[0.02] focus-visible:outline-none justify-between items-center gap-[10px] border-b border-white/[0.06] last:border-b-0 cursor-pointer"
       >
-        <div className="flex-1 min-w-0">
-          {/* Row 1: Title & Owner */}
-          <div className="flex items-baseline min-w-0">
-            <RepositoryTitle name={repo.name} />
-            <span className="text-[13px] text-[#71717A] ml-2 shrink-0">by {repo.owner}</span>
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[#232326]/60 bg-white">
+            {companyLogo && !logoFailed ? (
+              <img
+                src={companyLogo}
+                alt={`${repo.owner} logo`}
+                width={32}
+                height={32}
+                className="h-6 w-6 object-contain"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <span className="flex h-6 w-6 items-center justify-center text-xs font-bold text-neutral-900">
+                {repo.owner.charAt(0).toUpperCase()}
+              </span>
+            )}
           </div>
+          <div className="flex-1 min-w-0">
+            {/* Row 1: Title & Owner */}
+            <div className="flex items-baseline min-w-0">
+              <RepositoryTitle name={repo.name} />
+              <span className="text-[12px] text-[#71717A] ml-2 shrink-0">by {repo.owner}</span>
+            </div>
 
           {/* Row 2: Stats Inline Bar */}
           <div className="flex flex-wrap items-center gap-1.5 text-[13px] text-[#71717A] font-mono mt-1">
@@ -212,6 +246,7 @@ export const RepositoryRow = React.memo(function RepositoryRow({ repo }: Reposit
             <span className="text-[#22C55E]">{updateHours}</span>
           </div>
         </div>
+      </div>
 
         {/* Far Right Action Icon */}
         <a
